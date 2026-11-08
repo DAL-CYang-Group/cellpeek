@@ -1,0 +1,236 @@
+// CellPeek — login / approval gate, data-folder step, user badge, feedback, usage log, version notice.
+// Talks to the Apps Script backend (NQP_CONFIG.APPS_SCRIPT_URL). Stored in this browser only:
+//   localStorage nqp_device (random id of this computer, kept after log-out), nqp_auth (token + email), nqp_src / nqp_remote (super users)
+//   IndexedDB: the CYCLING folder handle and parsed-file cache (cleared on log-out)
+'use strict';
+(function () {
+const NQP = window.NQP = window.NQP || {}, C = window.NQP_CONFIG || {}, $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const LS = {get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+            set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+            del: k => { try { localStorage.removeItem(k); } catch {} }};
+const deviceId = () => { let d = LS.get('nqp_device'); if (!d) { d = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()); LS.set('nqp_device', d); } return d; };
+const auth = () => LS.get('nqp_auth') || {};
+let USER = null;
+
+async function call(action, payload = {}) {
+  const r = await fetch(C.APPS_SCRIPT_URL, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'},
+    body: JSON.stringify({action, device_id: deviceId(), token: auth().token || '', version: C.APP_VERSION, ...payload})});
+  const j = await r.json(); if (j.error) throw new Error(j.error); return j;
+}
+async function publicIp() {
+  try { const c = new AbortController(); setTimeout(() => c.abort(), 3000);
+    return (await (await fetch('https://api.ipify.org?format=json', {signal: c.signal})).json()).ip || ''; } catch { return ''; }
+}
+
+// ---------- gate (full-screen card shown until the user may use the page) ----------
+function gate(html) { const g = $('#gate'); g.hidden = false; $('#gatecard').innerHTML = html; return $('#gatecard'); }
+function openPage() { $('#gate').hidden = true; }
+const TITLE = `<h2>CellPeek - DAL</h2>`;
+
+function showRegister(msg) {
+  const c = gate(`${TITLE}<p>First time on this computer. Please tell us who you are; your request is sent to the administrator.</p>
+    <label>Name<input id="g_name" type="text" autocomplete="name"></label>
+    <label>Dal email<input id="g_email" type="email" placeholder="name@dal.ca" autocomplete="email"></label>
+    <div class="gerr">${esc(msg || '')}</div><button class="primary" id="g_go">Send request</button>`);
+  $('#g_go', c).onclick = async () => {
+    const name = $('#g_name', c).value.trim(), email = $('#g_email', c).value.trim().toLowerCase();
+    if (!name) return ($('.gerr', c).textContent = 'Please enter your name.');
+    if (!/^[^@\s]+@dal\.ca$/.test(email)) return ($('.gerr', c).textContent = 'Please use your @dal.ca email address.');
+    $('#g_go', c).disabled = true; $('.gerr', c).textContent = 'Sending…';
+    try {
+      const j = await call('register', {name, email, ip: await publicIp(), ua: navigator.userAgent, screen: `${screen.width}x${screen.height}`});
+      LS.set('nqp_auth', {token: j.token, email, name}); route(j);
+    } catch (e) { $('#g_go', c).disabled = false; $('.gerr', c).textContent = e.message; }
+  };
+}
+let pollT = null;
+function showWaiting(s) {
+  const a = auth(), verify = s.status === 'unverified';
+  const c = gate(`${TITLE}<p>${verify
+      ? `We sent a verification link to <b>${esc(a.email)}</b>. Please open it (check Junk too).`
+      : `Thanks, <b>${esc(a.email)}</b> is verified. Waiting for the administrator to approve this computer.`}</p>
+    <p class="gmuted">This page checks every 20 seconds.</p>
+    <button id="g_chk">Check now</button> <button id="g_over">Start over</button>`);
+  $('#g_chk', c).onclick = () => check();
+  $('#g_over', c).onclick = () => logout(true);
+  clearTimeout(pollT); pollT = setTimeout(check, 20000);
+}
+function showBlocked(s) {
+  const c = gate(`${TITLE}<p>${s.status === 'denied' ? 'Your request was not approved.' : 'Access for this computer has been switched off.'}
+    Please contact Chongyin Yang (c.yang@dal.ca).</p><button id="g_over">Start over</button>`);
+  $('#g_over', c).onclick = () => logout(true);
+}
+async function check() {
+  clearTimeout(pollT);
+  try { route(await call('session')); } catch (e) { gate(`${TITLE}<p class="gerr">Cannot reach the login server: ${esc(e.message)}</p><button onclick="location.reload()">Retry</button>`); }
+}
+function route(s) {
+  if (s.status === 'approved') return approved(s);
+  if (s.status === 'unverified' || s.status === 'pending') return showWaiting(s);
+  if (s.status === 'denied' || s.status === 'revoked') return showBlocked(s);
+  LS.del('nqp_auth'); showRegister();
+}
+
+// ---------- after approval ----------
+function approved(s) {
+  clearTimeout(pollT);
+  USER = {email: s.email, name: s.name, super: !!s.super};
+  LS.set('nqp_auth', {...auth(), email: s.email, name: s.name});
+  const who = $('#who'); who.hidden = false;
+  who.innerHTML = `<span title="${esc(s.name)}">${esc(s.email)}</span><a href="#" title="Log out and forget this computer's settings">✕</a>`;
+  $('a', who).onclick = ev => { ev.preventDefault(); logout(false); };
+  $('#fbbtn').hidden = false;
+  if (s.latest_version && s.latest_version !== C.APP_VERSION) {
+    const b = $('#banner'); b.hidden = false;
+    b.innerHTML = `A newer version (${esc(s.latest_version)}) is available. <a href="#">Reload</a>`;
+    $('a', b).onclick = ev => { ev.preventDefault(); location.reload(); };
+  }
+  if (s.notice) { const b = $('#banner'); b.hidden = false; b.insertAdjacentHTML('beforeend', ' ' + esc(s.notice)); }
+  NQP.log('open', {ua: navigator.userAgent.slice(0, 160)});
+  dataStep();
+}
+
+// ---------- data source step ----------
+function srcLabel() {
+  const el = $('#src'), S = NQP.source; el.hidden = false;
+  if (S.mode === 'server') { el.textContent = 'Data: office server'; return; }
+  const sup = USER && USER.super;
+  el.innerHTML = (S.mode === 'remote' ? `Data: remote · ${esc(S.base.replace(/^https?:\/\//, ''))}` : `Data: ${esc(NQP.folder.name() || '—')}`)
+    + ` <a href="#" id="srcchg">change</a>`;
+  $('#srcchg').onclick = ev => { ev.preventDefault(); sup ? chooseSource() : pickFolder(true); };
+}
+async function dataStep() {
+  const r = LS.get('nqp_src');
+  if (USER && USER.super && r === 'remote' && LS.get('nqp_remote')) { useRemote(LS.get('nqp_remote')); return openPage(); }
+  if (!NQP.folder.supported()) return gate(`${TITLE}<p>Please open this page in <b>Google Chrome</b> or <b>Microsoft Edge</b>.
+    Other browsers cannot read a folder on your computer.</p>${USER && USER.super ? '<button id="g_rm">Use remote server instead</button>' : ''}`)
+    , USER && USER.super && ($('#g_rm').onclick = chooseSource);
+  const st = await NQP.folder.state();
+  if (st === 'granted') { await NQP.folder.useSaved(); srcLabel(); return openPage(); }
+  if (st === 'prompt') {
+    const c = gate(`${TITLE}<p>Allow this page to read your data folder <b>${esc((await NQP.folder.saved()).name)}</b> again.</p>
+      <p class="gmuted">Tip: in the browser prompt choose <i>Allow on every visit</i> to skip this step next time.</p>
+      <button class="primary" id="g_ok">Allow</button> <button id="g_new">Choose another folder</button>`);
+    $('#g_ok', c).onclick = async () => { if (await NQP.folder.reconnect()) { srcLabel(); openPage(); NQP.log('folder', {name: NQP.folder.name(), how: 'reconnect'}); } };
+    $('#g_new', c).onclick = () => pickFolder(false);
+    return;
+  }
+  firstFolder();
+}
+function firstFolder(msg) {
+  const c = gate(`${TITLE}<p>Choose the <b>CYCLING</b> folder on the data drive, for example<br><code>Z:\\databdayse\\DATA\\CYCLING</code></p>
+    <p class="gmuted">The page only reads files (read-only); it is remembered on this computer.</p>
+    <div class="gerr">${esc(msg || '')}</div><button class="primary" id="g_pick">Choose folder…</button>
+    ${USER && USER.super ? '<button id="g_rm">Remote server…</button>' : ''}`);
+  $('#g_pick', c).onclick = () => pickFolder(false);
+  if ($('#g_rm', c)) $('#g_rm', c).onclick = chooseSource;
+}
+async function pickFolder(fromHeader) {
+  try {
+    const r = await NQP.folder.pick();
+    if (!r.roots.some(n => /NEWARE/i.test(n))) status('Note: no NEWARE folder found inside ' + r.name + '; searching this folder only.');
+    NQP.source.mode = 'local'; LS.set('nqp_src', 'local'); srcLabel(); openPage(); NQP.log('folder', {name: r.name, roots: r.roots});
+    if (fromHeader) status('Data folder: ' + r.roots.join(' + '));
+  } catch (e) { if (e.name !== 'AbortError') fromHeader ? status('Folder: ' + e.message) : firstFolder(e.message); }
+}
+function useRemote(r) { Object.assign(NQP.source, {mode: 'remote', base: r.base, token: r.token}); srcLabel(); }
+
+// super users: local folder or remote server (Tailscale)
+function chooseSource() {
+  const d = $('#rmt'), r = LS.get('nqp_remote') || {};
+  $('#rm_base').value = r.base || ''; $('#rm_tok').value = r.token || ''; $('#rm_msg').textContent = '';
+  d.showModal();
+}
+function initRemoteDialog() {
+  const d = $('#rmt');
+  $('#rm_x').onclick = () => d.close();
+  $('#rm_local').onclick = () => { d.close(); LS.set('nqp_src', 'local'); NQP.source.mode = 'local'; NQP.source.base = ''; dataStep(); };
+  $('#rm_go').onclick = async () => {
+    const r = {base: $('#rm_base').value.trim().replace(/\/+$/, ''), token: $('#rm_tok').value.trim()};
+    $('#rm_msg').textContent = 'Testing…';
+    try {
+      const j = await (await fetch(r.base + '/api/info' + (r.token ? '?token=' + encodeURIComponent(r.token) : ''))).json();
+      if (!j.roots) throw new Error(j.error || 'unexpected answer');
+      LS.set('nqp_remote', r); LS.set('nqp_src', 'remote'); useRemote(r); d.close(); openPage();
+      status('Remote server: ' + j.roots[0]); NQP.log('remote', {base: r.base});
+    } catch (e) { $('#rm_msg').textContent = 'Cannot reach it: ' + e.message; }
+  };
+}
+
+// ---------- log out ----------
+async function logout(silent) {
+  try { if (C.APPS_SCRIPT_URL && auth().token) await call('logout'); } catch {}
+  LS.del('nqp_auth'); LS.del('nqp_src'); LS.del('nqp_remote');
+  await NQP.folder.forget(); await NQP.clearCache().catch(() => {});
+  location.reload();
+}
+
+// ---------- usage log (batched) ----------
+const queue = [], errs = [];
+NQP.log = (event, detail) => {
+  if (!C.APPS_SCRIPT_URL || !USER) return;
+  queue.push({t: new Date().toISOString(), event, detail: typeof detail === 'string' ? detail : JSON.stringify(detail || {})});
+  if (event === 'error') errs.push(queue[queue.length - 1]), errs.length > 20 && errs.shift();
+  if (queue.length >= 20) flush();
+};
+function flush(beacon) {
+  if (!queue.length || !USER) return;
+  const events = queue.splice(0, 50);
+  const body = JSON.stringify({action: 'log', device_id: deviceId(), token: auth().token, version: C.APP_VERSION, events});
+  fetch(C.APPS_SCRIPT_URL, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body, keepalive: !!beacon}).catch(() => {});
+}
+setInterval(flush, 30000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(true); });
+window.addEventListener('error', e => NQP.log('error', String(e.message || e.error).slice(0, 300)));
+window.addEventListener('unhandledrejection', e => NQP.log('error', String(e.reason && e.reason.message || e.reason).slice(0, 300)));
+
+// ---------- feedback ----------
+function initFeedback() {
+  const d = $('#fb');
+  $('#fbbtn').onclick = () => { $('#fb_msg').textContent = ''; d.showModal(); };
+  $('#fb_x').onclick = () => d.close();
+  $('#fb_go').onclick = async () => {
+    const text = $('#fb_text').value.trim(); if (!text) return ($('#fb_msg').textContent = 'Please write a few words.');
+    let image = '', f = $('#fb_img').files[0];
+    if (f) { if (f.size > 5e6) return ($('#fb_msg').textContent = 'Image is larger than 5 MB.');
+      image = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f); }); }
+    const context = {version: C.APP_VERSION, ua: navigator.userAgent, source: NQP.source.mode, folder: NQP.folder.name(),
+      cells: [...document.querySelectorAll('#chips .chip b')].map(b => b.textContent),
+      modules: [...document.querySelectorAll('#modebar button.on')].map(b => b.textContent),
+      status: ($('#status') || {}).textContent, errors: errs.slice(-10)};
+    $('#fb_go').disabled = true; $('#fb_msg').textContent = 'Sending…';
+    try { await call('feedback', {type: $('#fb_type').value, text, context, image, image_name: f ? f.name : ''});
+      $('#fb_text').value = ''; $('#fb_img').value = ''; d.close(); status('Thank you, feedback sent.'); }
+    catch (e) { $('#fb_msg').textContent = 'Could not send: ' + e.message; }
+    $('#fb_go').disabled = false;
+  };
+}
+
+// ---------- start ----------
+const status = t => { const s = $('#status'); if (s) s.textContent = t; };
+async function isServerPy() {
+  if (location.protocol === 'file:' || /github\.io$/.test(location.hostname)) return false;
+  try { const c = new AbortController(); setTimeout(() => c.abort(), 1500);
+    const j = await (await fetch('api/info' + location.search, {signal: c.signal})).json(); return Array.isArray(j.roots); } catch { return false; }
+}
+NQP.boot = async function () {
+  const v = $('#ver'), V = window.NQP_VERSIONS || [];
+  if (v && C.APP_VERSION) v.textContent = 'beta ' + C.APP_VERSION;
+  if (v) v.onclick = ev => { ev.preventDefault();
+    $('#verlist').innerHTML = V.map(x => `<div><div class="vh">${esc(x.v)}<span>${esc(x.date)}</span></div><ul>${x.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>`).join('');
+    $('#verdlg').showModal(); };
+  $('#ver_x').onclick = () => $('#verdlg').close();
+  initFeedback(); initRemoteDialog();
+  // error lines shown in the status bar are logged too
+  new MutationObserver(() => { const t = $('#status').textContent; if (/^Error|failed|Cannot/i.test(t)) NQP.log('error', t.slice(0, 300)); })
+    .observe($('#status'), {childList: true, characterData: true, subtree: true});
+  if (await isServerPy()) {                   // old local mode: page served by server.py
+    Object.assign(NQP.source, {mode: 'server', token: new URLSearchParams(location.search).get('token') || ''});
+    srcLabel(); return openPage();
+  }
+  if (!C.APPS_SCRIPT_URL) { USER = null; return dataStep(); }     // no login configured (testing)
+  if (!auth().token) return showRegister();
+  gate(`${TITLE}<p class="gmuted">Signing in…</p>`); check();
+};
+})();

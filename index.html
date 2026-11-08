@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CellPeek - DAL</title>
+<link rel="stylesheet" href="static/uPlot.min.css">
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --line:#dde1e6; --text:#1d2329; --muted:#6b7480; --accent:#1f5fbf; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 14px/1.45 -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+  header { position:sticky; top:0; z-index:10; background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  header h1 { font-size:15px; margin:0 8px 0 0; white-space:nowrap; flex:none; }
+  #hdrsp { margin-left:auto; }
+  input[type=text], input[type=number], select { font:inherit; padding:4px 6px; border:1px solid var(--line); border-radius:5px; background:#fff; }
+  input[type=number] { width:64px; }
+  #bc { width:340px; }
+  button { font:inherit; padding:5px 12px; border:1px solid var(--line); border-radius:5px; background:#fff; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  #msgrow { display:flex; flex-wrap:wrap; gap:4px 16px; padding:4px 16px 0; font-size:13px; }
+  #status { color:var(--muted); }
+  #status:empty { display:none; }
+  #chips { display:flex; flex-wrap:wrap; gap:6px; padding:8px 16px 0; }
+  #bcerr { color:#b00; }
+  #bcerr:empty { display:none; }
+  #modebar { display:flex; flex-wrap:wrap; gap:6px; padding:8px 16px 0; }
+  #modebar button { border-radius:14px; padding:3px 11px; font-size:13px; color:var(--accent); border-color:var(--accent); background:#fff; }
+  #modebar button.on { background:var(--accent); color:#fff; }
+  .chip { display:flex; align-items:center; gap:6px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:3px 8px 3px 4px; font-size:13px; }
+  .chip input[type=color] { width:22px; height:22px; border:none; padding:0; background:none; cursor:pointer; }
+  .chip .x { cursor:pointer; color:var(--muted); padding:0 2px; }
+  .chip.err { border-color:#d33; color:#b00; }
+  .chip select { font-size:11.5px; max-width:240px; padding:1px 3px; }
+  .chip .meta { color:var(--muted); font-size:11.5px; }
+  main { padding:10px 16px 40px; display:grid; gap:12px; }
+  .mod { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 12px 10px; }
+  .mod .bar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+  .mod .bar .t { font-weight:600; }
+  .mod .opts { display:flex; flex-wrap:wrap; gap:10px; align-items:center; color:var(--muted); font-size:13px; }
+  .mod.off { display:none; }
+  .mod .plot { margin-top:6px; }
+  .mod .note { color:var(--muted); font-size:12px; margin-top:4px; }
+  .mod .opts .or { color:var(--muted); margin-left:4px; }
+  .uplot { position:relative; }
+  .lim { position:absolute; width:50px; height:19px; padding:0 2px; font-size:11px; font-family:inherit; color:var(--muted);
+         background:#fff; border:1px solid transparent; border-radius:3px; z-index:5; }
+  .lim:hover, .lim:focus { border-color:#9aa4b0; outline:none; color:var(--text); }
+  .lim.set { color:var(--accent); font-weight:600; }
+  .lim.r { text-align:right; }
+  .axlab { position:absolute; font-size:12px; color:var(--text); white-space:nowrap; display:flex; align-items:center; gap:5px; z-index:4; }
+  .axlab.y { writing-mode:vertical-rl; transform:rotate(180deg); }
+  .axauto { position:absolute; z-index:6; font-size:10.5px; padding:0 5px; border-radius:8px; line-height:15px; color:var(--accent); border-color:var(--accent); background:#fff; }
+  .axauto.set { background:var(--accent); color:#fff; }
+  .expbtn { margin-left:auto; font-size:11.5px; padding:2px 9px; border-radius:10px; color:var(--accent); border-color:var(--accent); background:#fff; }
+  .expbtn:hover { background:var(--accent); color:#fff; }
+  .dq-cell .hrow { display:flex; align-items:center; gap:8px; }
+  .dq-cell .hrow .head { flex:1; min-width:0; }
+  #exp { border:1px solid var(--line); border-radius:10px; padding:0; width:min(1100px, 96vw); box-shadow:0 10px 40px rgba(0,0,0,.25); }
+  #exp::backdrop { background:rgba(20,25,30,.35); }
+  #exp .eh { display:flex; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); font-weight:600; }
+  #exp .eh button { margin-left:auto; }
+  #exp .eb { display:flex; flex-wrap:wrap; gap:14px; padding:12px 14px; }
+  #exp .pv { flex:1 1 560px; min-width:300px; background:#fff; border:1px solid var(--line); border-radius:6px; padding:6px; }
+  #exp .pv canvas { width:100%; height:auto; display:block; }
+  #exp .side { flex:0 1 330px; display:flex; flex-direction:column; gap:10px; font-size:13px; }
+  #exp .side h4 { margin:0; font-size:12.5px; color:var(--muted); font-weight:600; }
+  #exp .legrows { display:grid; grid-template-columns:auto 1fr; gap:4px 8px; align-items:center; max-height:330px; overflow:auto; }
+  #exp .legrows input[type=color] { width:34px; height:24px; padding:0; border:1px solid var(--line); background:#fff; }
+  #exp .legrows input[type=text] { width:100%; box-sizing:border-box; }
+  #exp .ef { display:flex; align-items:center; gap:8px; padding:10px 14px; border-top:1px solid var(--line); }
+  #exp .ef input { flex:1; }
+  .dq-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap:10px; }
+  .dq-cell .head { font-weight:600; font-size:13px; }
+  .dq-cell .head { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dq-cell .head span { color:var(--muted); font-weight:400; font-size:11.5px; }
+  .cyc-legend { font-size:11.5px; display:flex; flex-wrap:wrap; gap:2px 8px; margin-top:2px; }
+  .dirty { box-shadow: inset 3px 0 0 #e8a33a; }
+  .u-legend { display:none; }
+  [hidden] { display:none !important; }
+  header h1 a { color:inherit; text-decoration:none; }
+  header h1 a:hover { color:var(--accent); text-decoration:underline; }
+  #verlist .vh { font-weight:600; }
+  #verlist .vh span { color:var(--muted); font-weight:400; margin-left:6px; }
+  #verlist ul { margin:2px 0 0; padding-left:18px; }
+  #src { font-size:12.5px; color:var(--muted); }
+  #src a, #banner a { color:var(--accent); }
+  #fbbtn { font-size:12.5px; padding:3px 10px; }
+  #who { display:flex; align-items:center; gap:6px; font-size:12.5px; background:#eef3fb; border:1px solid #cfdcf0; border-radius:14px; padding:2px 6px 2px 10px; }
+  #who a { color:var(--muted); text-decoration:none; font-size:13px; padding:0 3px; }
+  #who a:hover { color:#b00; }
+  #banner { background:#fff6e0; border-bottom:1px solid #f0d9a0; padding:6px 16px; font-size:13px; }
+  #gate { position:fixed; inset:0; z-index:50; background:rgba(246,247,249,.97); display:flex; align-items:center; justify-content:center; padding:16px; }
+  #gatecard { background:#fff; border:1px solid var(--line); border-radius:10px; padding:22px 26px; width:min(440px, 100%); box-shadow:0 8px 30px rgba(0,0,0,.08); display:flex; flex-direction:column; gap:10px; }
+  #gatecard h2 { margin:0 0 4px; font-size:18px; }
+  #gatecard p { margin:0; }
+  #gatecard label { display:flex; flex-direction:column; gap:3px; font-size:13px; color:var(--muted); }
+  #gatecard input { font-size:14px; padding:6px 8px; }
+  #gatecard code { background:#f1f3f6; padding:1px 5px; border-radius:4px; }
+  .gerr { color:#b00; font-size:13px; min-height:1px; }
+  .gmuted { color:var(--muted); font-size:12.5px; }
+  dialog.small { border:1px solid var(--line); border-radius:10px; padding:0; width:min(480px, 94vw); box-shadow:0 10px 40px rgba(0,0,0,.25); }
+  dialog.small::backdrop { background:rgba(20,25,30,.35); }
+  dialog.small .eh { display:flex; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); font-weight:600; }
+  dialog.small .eh button { margin-left:auto; }
+  dialog.small .sb { padding:12px 14px; display:flex; flex-direction:column; gap:10px; font-size:13px; }
+  dialog.small .sb label { display:flex; flex-direction:column; gap:3px; }
+  dialog.small .sb p { margin:0; }
+  dialog.small textarea { font:inherit; padding:6px; border:1px solid var(--line); border-radius:5px; resize:vertical; }
+  dialog.small .ef { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 14px; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>CellPeek - DAL <span style="font-weight:400;color:#6b7480;font-size:12px"><a href="#" id="ver" title="Version history">beta 0.1.1</a> · by <a href="https://www.yang-dal.com/" target="_blank" rel="noopener">Chongyin Yang</a></span></h1>
+  <input id="bc" type="text" placeholder="e.g. 1169067, 1169068; 1169158  then Enter">
+  <button id="add">Add</button>
+  <button id="plot" class="primary">Plot</button>
+  <span id="hdrsp"></span>
+  <span id="src" hidden></span>
+  <button id="fbbtn" hidden title="Report a bug or send a suggestion">Feedback</button>
+  <span id="who" hidden></span>
+</header>
+<div id="banner" hidden></div>
+<div id="gate" hidden><div id="gatecard"></div></div>
+<div id="chips"></div>
+<div id="msgrow"><span id="status"></span><span id="bcerr"></span></div>
+<div id="modebar"></div>
+<main id="mods"></main>
+
+<script src="static/uPlot.iife.min.js"></script>
+<script src="config.js?v=0.1.1"></script>
+<script src="versions.js?v=0.1.1"></script>
+<script src="data.js?v=0.1.1"></script>
+<script src="auth.js?v=0.1.1"></script>
+<dialog id="verdlg" class="small">
+  <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
+  <div class="sb" id="verlist"></div>
+</dialog>
+<dialog id="fb" class="small">
+  <div class="eh"><span>Feedback</span><button type="button" id="fb_x">✕</button></div>
+  <div class="sb">
+    <label>Type <select id="fb_type"><option>Bug</option><option>Suggestion</option><option>Other</option></select></label>
+    <textarea id="fb_text" rows="6" placeholder="What happened, or what would help? Barcodes and settings are attached automatically."></textarea>
+    <label>Screenshot (optional) <input type="file" id="fb_img" accept="image/*"></label>
+    <div id="fb_msg" class="gerr"></div>
+  </div>
+  <div class="ef"><span class="gmuted">Sent to Chongyin Yang</span><button type="button" class="primary" id="fb_go">Send</button></div>
+</dialog>
+<dialog id="rmt" class="small">
+  <div class="eh"><span>Data source (super users)</span><button type="button" id="rm_x">✕</button></div>
+  <div class="sb">
+    <button type="button" id="rm_local">Use a local folder on this computer</button>
+    <p class="gmuted">or the office PC through Tailscale:</p>
+    <label>Server address <input type="text" id="rm_base" placeholder="https://office-pc.tailXXXX.ts.net"></label>
+    <label>Token <input type="text" id="rm_tok" placeholder="token set on the office PC"></label>
+    <div id="rm_msg" class="gerr"></div>
+  </div>
+  <div class="ef"><span></span><button type="button" class="primary" id="rm_go">Connect</button></div>
+</dialog>
+<dialog id="exp">
+  <div class="eh"><span id="exptitle">Export PNG</span><button type="button" id="expx">✕</button></div>
+  <div class="eb">
+    <div class="pv"><canvas id="expcv"></canvas></div>
+    <div class="side">
+      <h4>Legend (colour · text)</h4><div class="legrows" id="explist"></div>
+      <label><input type="checkbox" id="expfill"> Filled markers</label>
+      <label><input type="checkbox" id="explegon" checked> Show legend</label>
+    </div>
+  </div>
+  <div class="ef">File name <input type="text" id="expname"><button type="button" class="primary" id="expsave">Save as…</button></div>
+</dialog>
+<script>
+"use strict";
+// api(path) comes from data.js (local folder, remote server or server.py)
+// one tokenizer for every list input (barcodes, cycles, ...): tab, any number of spaces, comma, semicolon (incl. full-width)
+const splitTokens = (t) => String(t || '').split(/[\s,;，；、]+/).map(x => x.trim()).filter(Boolean);
+// cycle list: "1, 2; 9 50" or ranges "10-20"; returns {ks, bad}
+function parseCycles(t) {
+  const ks = [], bad = [];
+  for (const tok of splitTokens(t)) {
+    let m;
+    if (/^\d+$/.test(tok)) ks.push(+tok);
+    else if ((m = tok.match(/^(\d+)\s*[-–~]\s*(\d+)$/))) { const a = +m[1], b = +m[2]; for (let k = Math.min(a, b); k <= Math.max(a, b) && ks.length < 500; k++) ks.push(k); }
+    else bad.push(tok);
+  }
+  return {ks: [...new Set(ks)].sort((a, b) => a - b), bad};
+}
+const PALETTE = ['#1f5fbf','#d62728','#2ca02c','#ff7f0e','#9467bd','#8c564b','#e377c2','#17becf','#7f7f7f','#bcbd22'];
+const $ = (s, el=document) => el.querySelector(s);
+const status = (t) => { $('#status').textContent = t; };
+
+// ---------------- state ----------------
+const cells = [];            // {bc, color, file, candidates, data, err}
+const vqCache = {};          // bc|file -> {k: {chg:[Q,V], dis:[Q,V]}}
+const rendered = {};         // modId -> {sig, plots:[]}
+
+// ---------------- modules ----------------
+const M = [
+  {id:'qcyc',  title:'Discharge capacity vs cycle',        x:'cyc',  y:'q',  opts:['unit']},
+  {id:'qtime', title:'Discharge capacity vs time',        x:'time', y:'q',  opts:['unit']},
+  {id:'ncyc',  title:'Normalized discharge capacity vs cycle',  x:'cyc',  y:'n',  opts:['ref']},
+  {id:'ntime', title:'Normalized discharge capacity vs time',  x:'time', y:'n',  opts:['ref']},
+  {id:'cecyc', title:'Coulombic efficiency vs cycle',        x:'cyc',  y:'ce', opts:[]},
+  {id:'cetime',title:'Coulombic efficiency vs time',        x:'time', y:'ce', opts:[]},
+  {id:'dvcyc', title:'ΔV vs cycle',              x:'cyc',  y:'dv', opts:['dvmode']},
+  {id:'dvtime',title:'ΔV vs time',              x:'time', y:'dv', opts:['dvmode']},
+  {id:'dqdv',  title:'dQ/dV',                   x:'v',    y:'dq', opts:['cycsel','smooth']},
+];
+const OPT_HTML = {
+  unit:   `Unit <select data-k="unit"><option value="g">mAh/g</option><option value="mAh">mAh</option></select>`,
+  ref:    `Normalize to cycle <input type="number" data-k="ref" value="1" min="1">`,
+  dvmode: `<select data-k="dvmode"><option value="abs">ΔV (V)</option><option value="diff">ΔV − ΔV<sub>ref</sub> (mV)</option></select>
+           ref cycle <input type="number" data-k="dvref" value="11" min="1">`,
+  cycsel: `Cycles <input type="text" data-k="clist" value="" placeholder="e.g. 1, 2; 9  50  or 10-20" style="width:210px" title="Separate with tab, spaces, comma or ;  ·  a-b = every cycle from a to b  ·  leave empty to use the range">
+           <span class="or">or every</span> <input type="number" data-k="cstep" value="5" min="1"> from <input type="number" data-k="c0" value="1" min="1"> to <input type="number" data-k="c1" value="50" min="1">`,
+  smooth: `Smoothing <select data-k="smooth">
+             <option value="raw">None (point-to-point)</option>
+             <option value="5_3">Light: 5 mV grid + 3-pt</option>
+             <option value="2.5_5" selected>Default: 2.5 mV grid + 5-pt</option>
+             <option value="5_5">Heavy: 5 mV grid + 5-pt</option>
+             <option value="10_3">Very heavy: 10 mV grid + 3-pt</option></select>`,
+};
+const DEFAULT_ON = {qcyc:true, ncyc:true, dvcyc:true, dqdv:true};
+const ON = {...DEFAULT_ON};
+
+function buildModules() {
+  const box = $('#mods');
+  for (const m of M) {
+    const d = document.createElement('section');
+    d.className = 'mod' + (DEFAULT_ON[m.id] ? '' : ' off'); d.id = 'mod-' + m.id;
+    d.innerHTML = `<div class="bar"><span class="t">${m.title}</span>
+      <div class="opts">${m.opts.map(o => OPT_HTML[o]).join('')}</div>${m.id === 'dqdv' ? '' : '<button type="button" class="expbtn" title="Export this plot as PNG">Export PNG</button>'}</div>
+      <div class="plot"></div><div class="note"></div>`;
+    box.appendChild(d);
+    d.addEventListener('input', e => { if (e.target.closest('.uplot')) return; syncShow(d); markDirty(); });
+    const eb = $('.expbtn', d); if (eb) eb.onclick = () => { const r = rendered[m.id]; if (r && r.plots[0]) openExport(r.plots[0]); else status('Plot first, then export'); };
+    syncShow(d);
+  }
+}
+function buildModeBar() {
+  const bar = $('#modebar');
+  for (const m of M) {
+    const b = document.createElement('button'); b.textContent = m.title; b.className = ON[m.id] ? 'on' : '';
+    b.onclick = () => { ON[m.id] = !ON[m.id]; b.classList.toggle('on', !!ON[m.id]); $('#mod-' + m.id).classList.toggle('off', !ON[m.id]); markDirty(); };
+    bar.appendChild(b);
+  }
+}
+function syncShow(d) {
+  const sel = $('[data-k=cycmode]', d); if (!sel) return;
+  d.querySelectorAll('[data-show]').forEach(s => s.style.display = s.dataset.show === sel.value ? '' : 'none');
+}
+function settings(m) {
+  const d = $('#mod-' + m.id), o = {};
+  d.querySelectorAll('[data-k]').forEach(e => o[e.dataset.k] = e.type === 'checkbox' ? e.checked : e.value);
+  return o;
+}
+function markDirty() {
+  for (const m of M) $('#mod-' + m.id).classList.toggle('dirty', sigOf(m) !== (rendered[m.id] || {}).sig);
+}
+
+// ---------------- cells ----------------
+function nextColor() { const used = new Set(cells.map(c => c.color)); return PALETTE.find(c => !used.has(c)) || '#' + Math.floor(Math.random()*0xffffff).toString(16).padStart(6,'0'); }
+const bad = new Set();         // barcodes with a wrong format or not found
+function showBad() {
+  const e = $('#bcerr'); e.innerHTML = bad.size ? 'Barcode errors: ' + [...bad].join(', ') + ' <a href="#" style="margin-left:8px">clear</a>' : '';
+  if (bad.size) $('a', e).onclick = (ev) => { ev.preventDefault(); bad.clear(); showBad(); };
+}
+async function addCells(text) {
+  const toks = splitTokens(text);
+  const bcs = [];
+  for (const t of toks) {
+    if (!/^\d{4,9}$/.test(t)) { bad.add(`${t} (invalid)`); continue; }
+    if (!cells.some(c => c.bc === t) && !bcs.includes(t)) bcs.push(t);
+  }
+  showBad();
+  for (const bc of bcs) {
+    const c = {bc, color: nextColor(), file: null, candidates: [], data: null, err: null, loading: true};
+    cells.push(c); renderChips(); loadCell(c);
+  }
+}
+async function loadCell(c, file) {
+  c.loading = true; c.err = null; renderChips(); const t0 = performance.now();
+  try {
+    const j = await api(`/api/cell?bc=${c.bc}` + (file ? `&file=${encodeURIComponent(file)}` : ''));
+    Object.assign(c, {data: j, file: j.file, candidates: j.candidates, loading: false});
+    status(`${c.bc}: ${j.cycles.length} cycles, ${((performance.now()-t0)/1000).toFixed(2)} s` + (j.parse_s != null ? ` (parsed in ${j.parse_s} s)` : ' (cached)'));
+  } catch (e) { c.err = e.message; c.loading = false; status(`${c.bc}: ${e.message}`);
+    if (/not found/i.test(e.message)) { cells.splice(cells.indexOf(c), 1); bad.add(`${c.bc} (not found)`); showBad(); } }
+  renderChips(); markDirty();
+}
+function renderChips() {
+  const box = $('#chips'); box.innerHTML = '';
+  for (const c of cells) {
+    const d = document.createElement('div'); d.className = 'chip' + (c.err ? ' err' : '');
+    const n = c.data ? c.data.cycles.length : 0;
+    d.innerHTML = `<input type="color" value="${c.color}"><b>${c.bc}</b>
+      <span class="meta">${c.loading ? 'loading…' : c.err ? c.err : `${n} cycles · ${c.data.start || ''}`}</span>
+      ${c.candidates.length > 1 ? `<select title="Several files for this barcode">${c.candidates.map(f => `<option ${f===c.file?'selected':''}>${f}</option>`).join('')}</select>` : ''}
+      <span class="x" title="Remove">✕</span>`;
+    d.title = c.file || '';
+    $('input[type=color]', d).addEventListener('input', e => { c.color = e.target.value; markDirty(); });
+    const sel = $('select', d); if (sel) sel.addEventListener('change', e => loadCell(c, e.target.value));
+    $('.x', d).addEventListener('click', () => { cells.splice(cells.indexOf(c), 1); renderChips(); markDirty(); });
+    box.appendChild(d);
+  }
+}
+
+// ---------------- signatures (redraw only changed modules) ----------------
+function sigOf(m) {
+  if (!ON[m.id]) return 'off';
+  const s = settings(m);
+  return JSON.stringify([s, LIM[m.id], cells.filter(c => c.data).map(c => [c.bc, c.color, c.file])]);
+}
+
+// ---------------- data ----------------
+function seriesFor(m, s, c) {
+  const cy = c.data.cycles, X = [], Y = [];
+  let ref = null;
+  if (m.y === 'n') { const r = cy.find(e => e.k === +s.ref); if (!r) return null; ref = r.qd; }
+  if (m.y === 'dv' && s.dvmode === 'diff') { const r = cy.find(e => e.k === +s.dvref); if (!r || r.dv == null) return null; ref = r.dv; }
+  for (const e of cy) {
+    const x = m.x === 'cyc' ? e.k : e.t_h; if (x == null) continue;
+    let y = null;
+    if (m.y === 'q') y = s.unit === 'mAh' ? e.qd_mAh : e.qd;
+    else if (m.y === 'n') y = 100 * e.qd / ref;
+    else if (m.y === 'ce') y = e.ce;
+    else if (m.y === 'dv') y = e.dv == null ? null : (s.dvmode === 'diff' ? 1000 * (e.dv - ref) : e.dv);
+    if (y == null || !isFinite(y)) continue;
+    X.push(x); Y.push(y);
+  }
+  return [X, Y];
+}
+const YLAB = {q: s => s.unit === 'mAh' ? 'Discharge capacity (mAh)' : 'Specific discharge capacity (mAh/g)', n: s => `Capacity vs cycle ${s.ref} (%)`,
+              ce: () => 'Coulombic efficiency (%)', dv: s => s.dvmode === 'diff' ? `ΔV − ΔV(${s.dvref}) (mV)` : 'ΔV = V̄chg − V̄dis (V)'};
+
+// ---------------- plotting ----------------
+// axis limits live on the axes themselves: LIM[module] = {xmin,xmax,ymin,ymax}; null = autoscale
+const LIM = {};
+function scalesFor(s) {
+  const num = (v) => (v == null || !isFinite(v)) ? null : +v;
+  const mk = (lo, hi, extra) => {
+    if (lo == null && hi == null) return extra;
+    return Object.assign({}, extra, {auto: true, range: (u, mn, mx) => {
+      if (mn == null || mx == null) { mn = lo ?? 0; mx = hi ?? 1; }
+      const lo2 = lo ?? mn, hi2 = hi ?? mx, pad = 0.03 * ((hi2 - lo2) || Math.abs(hi2) || 1);
+      return [lo ?? lo2 - pad, hi ?? hi2 + pad]; }});
+  };
+  return {x: mk(num(s.xmin), num(s.xmax), {time: false}), y: mk(num(s.ymin), num(s.ymax), {})};
+}
+// editable end values on each axis + an "auto" button next to each axis label
+function fmtLim(v, span) {
+  if (v == null || !isFinite(v)) return '';
+  const d = Math.min(4, Math.max(0, 2 - Math.floor(Math.log10(Math.abs(span) || 1))));
+  return (+v.toFixed(d)).toString();
+}
+function axisOverlay(u, m, xlab, ylab) {
+  const L = LIM[m.id] || (LIM[m.id] = {}), root = u.root, els = {};
+  u.expLim = L; u.expTitle = m.title;
+  const box = (key, cls) => {
+    const i = document.createElement('input'); i.type = 'text'; i.className = 'lim ' + cls;
+    i.title = (L[key] == null ? 'Autoscaled. ' : 'Fixed. ') + 'Type a value + Enter to fix this end; empty = auto';
+    i.addEventListener('keydown', e => { if (e.key === 'Enter') i.blur(); if (e.key === 'Escape') { i.value = i.dataset.v; i.blur(); } });
+    i.addEventListener('change', () => { const t = i.value.trim(); L[key] = t === '' || isNaN(+t) ? null : +t; renderOne(m); });
+    root.appendChild(i); els[key] = i; return i;
+  };
+  const lab = (a, text) => {
+    const d = document.createElement('div'); d.className = 'axlab ' + a;
+    const fixed = L[a + 'min'] != null || L[a + 'max'] != null;
+    d.innerHTML = `<span>${text}</span>`; root.appendChild(d);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'axauto' + (fixed ? ' set' : '');
+    b.textContent = 'auto'; b.title = 'Autoscale ' + a.toUpperCase(); b.onclick = () => { L[a + 'min'] = L[a + 'max'] = null; renderOne(m); };
+    root.appendChild(b); d.btn = b; return d;
+  };
+  const xmin = box('xmin', ''), xmax = box('xmax', 'r'), ymax = box('ymax', 'r'), ymin = box('ymin', 'r');
+  const lx = lab('x', xlab), ly = lab('y', ylab);
+  const place = () => {        // after layout: measure the plot area and pin the boxes to the axis ends
+    const R = root.getBoundingClientRect(), O = u.over.getBoundingClientRect();
+    const pl = O.left - R.left, pt = O.top - R.top, pr = pl + O.width, pb = pt + O.height, at = (e, x, y) => { e.style.left = x + 'px'; e.style.top = y + 'px'; };
+    at(xmin, pl - 12, pb + 8); at(xmax, Math.min(pr - 38, R.width - 52), pb + 8);
+    at(ymax, pl - 58, pt - 9); at(ymin, pl - 58, pb - 10);
+    at(lx, pl + O.width / 2 - lx.offsetWidth / 2, R.height - 21);
+    at(ly, 2, pt + O.height / 2 - ly.offsetHeight / 2);
+    at(ly.btn, pl - 60 - ly.btn.offsetWidth - 3, pt - 8);                       // Y auto: left of the top box
+    at(lx.btn, parseFloat(xmax.style.left) + 50 - lx.btn.offsetWidth, pb + 30);   // X auto: under the right box
+  };
+  const show = () => {
+    for (const a of ['x', 'y']) {
+      const sc = u.scales[a], span = (sc.max ?? 0) - (sc.min ?? 0);
+      for (const [k, v] of [[a + 'min', sc.min], [a + 'max', sc.max]]) {
+        const i = els[k]; if (document.activeElement === i) continue;
+        i.value = i.dataset.v = fmtLim(v, span); i.classList.toggle('set', L[k] != null);
+      }
+    }
+  };
+  requestAnimationFrame(place); show();
+  u.hooks.setScale = (u.hooks.setScale || []).concat(show);   // keeps numbers in step with drag-zoom
+}
+// tick labels: hide the ones that would sit under the editable end boxes, so nothing overlaps
+function tickFmt(v, incr) { const d = Math.max(0, Math.min(6, -Math.floor(Math.log10(incr) + 1e-9)));
+  return v.toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d}); }
+const AX = (a, size) => ({label: ' ', labelSize: 22, size, gap: 4,
+  values: (u, splits, ai, space, incr) => {
+    const pr_ = uPlot.pxRatio || 1, len = (a === 'x' ? u.bbox.width : u.bbox.height) / pr_, keep = a === 'x' ? 54 : 20;
+    return splits.map(v => { const p = u.valToPos(v, a); return (p < keep || p > len - keep) ? '' : tickFmt(v, incr); });
+  }});
+function width(el) { return Math.max(320, el.clientWidth); }
+function scatterPlot(m, s, el) {
+  const used = cells.filter(c => c.data), ser = [], data = [], miss = [];
+  for (const c of used) { const r = seriesFor(m, s, c); if (r && r[0].length) { ser.push({c, r}); } else miss.push(c.bc); }
+  if (!ser.length) { el.innerHTML = '<div class="note">No data to plot</div>'; return {plots: [], note: miss.length ? 'Missing: ' + miss.join(', ') : ''}; }
+  const aligned = uPlot.join(ser.map(o => [o.r[0], o.r[1]]));
+  const opts = {
+    width: width(el), height: 320, legend: {show: false},
+    scales: scalesFor(s),
+    axes: [AX('x', 34), AX('y', 72)],
+    cursor: {drag: {x: true, y: true, uni: 40}},
+    series: [{}].concat(ser.map(o => ({label: o.c.bc, stroke: o.c.color, width: 0, paths: () => null,
+      points: {show: true, size: 8, width: 1.4, stroke: o.c.color, fill: '#fff'}}))),
+  };
+  el.innerHTML = ''; const u = new uPlot(opts, aligned, el);
+  axisOverlay(u, m, m.x === 'cyc' ? 'Cycle number' : 'Time (h)', YLAB[m.y](s));
+  u.exp = {kind: 'pts', name: m.id, xlab: m.x === 'cyc' ? 'Cycle number' : 'Time (h)', ylab: YLAB[m.y](s),
+           items: ser.map(o => ({key: o.c.bc, label: o.c.bc, color: o.c.color, data: [[o.r[0], o.r[1]]]}))};
+  let note = (m.y === 'n' || (m.y === 'dv' && s.dvmode === 'diff')) && miss.length ? `No reference cycle: ${miss.join(', ')}` : '';
+  return {plots: [u], note: note + '  (drag to zoom, double-click to reset)'};
+}
+
+// dQ/dV
+const VIR = ['#440154','#482878','#3e4989','#31688e','#26828e','#1f9e89','#35b779','#6ece58','#b5de2b'];   // viridis truncated at ~0.85
+function vcolor(t) { t = Math.min(1, Math.max(0, t)) * (VIR.length - 1); const i = Math.floor(t), f = t - i;
+  if (i >= VIR.length - 1) return VIR[VIR.length - 1];
+  const a = VIR[i].match(/\w\w/g).map(h => parseInt(h, 16)), b = VIR[i+1].match(/\w\w/g).map(h => parseInt(h, 16));
+  return '#' + a.map((x, j) => Math.round(x + (b[j] - x) * f).toString(16).padStart(2, '0')).join(''); }
+function wantedCycles(s) {   // the specific list wins when it is not empty; otherwise the range
+  if (splitTokens(s.clist).length) return parseCycles(s.clist);
+  const ks = [], a = +s.c0 || 1, st = Math.max(1, +s.cstep || 1), b = +s.c1 || a;
+  for (let k = a; k <= b && ks.length < 200; k += st) ks.push(k);
+  return {ks, bad: []};
+}
+function cycleList(s, c) {
+  const have = new Set(c.data.cycles.map(e => e.k));
+  return wantedCycles(s).ks.filter(k => have.has(k));
+}
+function dqdv(Q, V, mode, sign) {
+  const n = V.length; if (n < 8) return null;
+  const idx = [...Array(n).keys()].sort((i, j) => V[i] - V[j]);
+  const v = [], q = [];
+  for (const i of idx) { if (v.length && V[i] - v[v.length-1] < 1e-6) continue; v.push(V[i]); q.push(Q[i]); }
+  if (v.length < 8) return null;
+  if (mode === 'raw') {
+    const X = [], Y = [];
+    for (let i = 1; i < v.length; i++) { const dv = v[i] - v[i-1]; if (dv > 1e-6) { X.push((v[i] + v[i-1]) / 2); Y.push(sign * Math.abs((q[i] - q[i-1]) / dv)); } }
+    return [X, Y];
+  }
+  const [dvmV, w] = mode.split('_').map(Number), dv = dvmV / 1000;
+  const g0 = Math.ceil(v[0] / dv) * dv, G = [];
+  for (let x = g0; x <= v[v.length-1]; x += dv) G.push(+x.toFixed(5));        // grid aligned to multiples of dv so cycles overlay
+  if (G.length < w + 6) return null;
+  const qi = new Float64Array(G.length); let j = 0;
+  for (let i = 0; i < G.length; i++) { while (j < v.length - 2 && v[j+1] < G[i]) j++; const t = (G[i] - v[j]) / (v[j+1] - v[j]); qi[i] = q[j] + t * (q[j+1] - q[j]); }
+  const d = new Float64Array(G.length);
+  for (let i = 0; i < G.length; i++) d[i] = (qi[Math.min(i+1, G.length-1)] - qi[Math.max(i-1, 0)]) / (dv * ((i > 0 && i < G.length-1) ? 2 : 1));
+  const h = Math.floor(w / 2), cut = h + 2, X = [], Y = [];
+  for (let i = cut; i < G.length - cut; i++) { let s = 0; for (let k = -h; k <= h; k++) s += d[i+k]; X.push(G[i]); Y.push(sign * Math.abs(s / w)); }
+  return [X, Y];
+}
+async function ensureVQ(c, ks) {
+  const key = c.bc + '|' + c.file, have = vqCache[key] || (vqCache[key] = {});
+  const need = ks.filter(k => !(k in have));
+  for (let i = 0; i < need.length; i += 60) {
+    const part = need.slice(i, i + 60);
+    const j = await api(`/api/vq?bc=${c.bc}&file=${encodeURIComponent(c.file)}&cycles=${part.join(',')}`);
+    for (const k of part) have[k] = j.vq[k] || null;
+  }
+  return have;
+}
+async function dqdvPlot(m, s, el) {
+  const used = cells.filter(c => c.data); el.innerHTML = '<div class="dq-grid"></div>'; const grid = $('.dq-grid', el), plots = [];
+  for (const c of used) {
+    const ks = cycleList(s, c), box = document.createElement('div'); box.className = 'dq-cell';
+    box.innerHTML = `<div class="hrow"><div class="head" style="color:${c.color}" title="${c.file}">${c.bc} <span>${c.file}</span></div><button type="button" class="expbtn" title="Export this plot as PNG">Export PNG</button></div><div class="pp"></div><div class="cyc-legend"></div>`;
+    grid.appendChild(box);
+    if (!ks.length) { $('.pp', box).innerHTML = '<div class="note">No data for these cycles</div>'; continue; }
+    const vq = await ensureVQ(c, ks), arrs = [], ser = [], items = [];
+    ks.forEach((k, i) => {
+      const col = vcolor(ks.length > 1 ? i / (ks.length - 1) : 0), e = vq[k]; if (!e) return;
+      const it = {key: 'c' + k, label: 'Cycle ' + k, color: col, data: []}; items.push(it);
+      for (const [st, sg] of [['chg', 1], ['dis', -1]]) {
+        if (!e[st]) continue; const r = dqdv(e[st][0], e[st][1], s.smooth, sg); if (!r) continue;
+        arrs.push(r); it.data.push(r); ser.push({label: `cyc ${k} ${st}`, stroke: col, width: 1.3, spanGaps: true, points: {show: false}});
+      }
+    });
+    $('.cyc-legend', box).innerHTML = ks.map((k, i) => `<span style="color:${vcolor(ks.length > 1 ? i/(ks.length-1) : 0)}">■ ${k}</span>`).join('');
+    { const have = new Set(c.data.cycles.map(e => e.k)), miss = wantedCycles(s).ks.filter(k => !have.has(k));
+      if (miss.length) $('.cyc-legend', box).insertAdjacentHTML('beforeend', `<span style="color:#b00">no data: ${miss.length > 12 ? miss.slice(0, 12).join(', ') + ' …' : miss.join(', ')}</span>`); }
+    if (!arrs.length) { $('.pp', box).innerHTML = '<div class="note">Too few points for dQ/dV</div>'; continue; }
+    const pp = $('.pp', box);
+    const u = new uPlot({width: width(pp), height: 300, legend: {show: false}, scales: scalesFor(s),
+      cursor: {drag: {x: true, y: true, uni: 40}},
+      axes: [AX('x', 34), AX('y', 72)],
+      series: [{}].concat(ser)}, uPlot.join(arrs), pp);
+    axisOverlay(u, m, 'Voltage (V)', 'dQ/dV (mAh g⁻¹ V⁻¹)');
+    u.exp = {kind: 'line', name: 'dQdV_' + c.bc, xlab: 'Voltage (V)', ylab: 'dQ/dV (mAh g⁻¹ V⁻¹)', items: items.filter(i => i.data.length)};
+    $('.expbtn', box).onclick = () => openExport(u);
+    plots.push(u);
+  }
+  const w = wantedCycles(s);
+  return {plots, note: (w.bad.length ? `Not understood: ${w.bad.join(', ')} · ` : '') + 'Charge up, discharge down; cycles from dark to light (drag to zoom, double-click to reset)'};
+}
+
+// ---------------- Plot button: redraw only changed modules ----------------
+async function drawModule(m) {          // returns true if it redrew
+  const sig = sigOf(m), r = rendered[m.id];
+  if (r && r.sig === sig) return false;
+  const d = $('#mod-' + m.id), el = $('.plot', d), s = Object.assign(settings(m), LIM[m.id] || {});
+  if (r) r.plots.forEach(p => p.destroy());
+  if (sig === 'off') { el.innerHTML = ''; $('.note', d).textContent = ''; rendered[m.id] = {sig, plots: []}; return false; }
+  const out = m.id === 'dqdv' ? await dqdvPlot(m, s, el) : scatterPlot(m, s, el);
+  $('.note', d).textContent = out.note || ''; rendered[m.id] = {sig, plots: out.plots}; return true;
+}
+async function renderOne(m) { try { if (await drawModule(m)) status(`Redrew: ${m.title}`); } catch (e) { status('Error: ' + e.message); } markDirty(); }
+async function plotAll() {
+  const btn = $('#plot'); btn.disabled = true; const t0 = performance.now(); let n = 0;
+  try {
+    for (const m of M) if (await drawModule(m)) n++;
+    status(`Redrew ${n} module(s), ${((performance.now()-t0)/1000).toFixed(2)} s`);
+    if (n) NQP.log('plot', {n, cells: cells.filter(c => c.data).map(c => c.bc), modules: M.filter(m => ON[m.id]).map(m => m.id)});
+  } catch (e) { status('Error: ' + e.message); }
+  btn.disabled = false; markDirty();
+}
+
+// ---------------- PNG export (publication style: boxed axes, ticks in, legend on the right) ----------------
+const EXPF = 'Arial, Helvetica, sans-serif', EXPSCALE = 4;
+function niceStep(span, n) { const r = span / n, p = Math.pow(10, Math.floor(Math.log10(r))), f = r / p;
+  return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p; }
+function expRange(u, a) {      // fixed ends stay exact; autoscaled/zoomed ends snap outward to a tick
+  const sc = u.scales[a], L = (u.expLim || {}), lo = sc.min, hi = sc.max, st = niceStep(hi - lo || 1, a === 'x' ? 6 : 5);
+  return {lo: L[a + 'min'] != null ? lo : Math.floor(lo / st + 1e-9) * st, hi: L[a + 'max'] != null ? hi : Math.ceil(hi / st - 1e-9) * st, st};
+}
+// axis titles: unicode superscripts (⁻¹ ²…) are drawn as real raised small text in Arial, minus as U+2212
+const SUP = {'⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9','⁻':'\u2212','⁺':'+'};
+function richParts(t) { const out = []; for (const ch of t) { const sup = ch in SUP, c = sup ? SUP[ch] : ch;
+  if (out.length && out[out.length - 1].sup === sup) out[out.length - 1].t += c; else out.push({t: c, sup}); } return out; }
+function drawRich(g, text, x, y, px) {   // centred at x, baseline y
+  const parts = richParts(text), F = s => `bold ${s}px ${EXPF}`, sp = Math.round(px * 0.7);
+  let w = 0; for (const p of parts) { g.font = F(p.sup ? sp : px); w += g.measureText(p.t).width; }
+  let cx = x - w / 2; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  for (const p of parts) { g.font = F(p.sup ? sp : px); g.fillText(p.t, cx, p.sup ? y - px * 0.38 : y); cx += g.measureText(p.t).width; }
+}
+function drawFig(cv, u, st, scale) {
+  const e = u.exp, g = cv.getContext('2d');
+  const items = e.items.map(i => ({...i, color: st.col[i.key] || i.color, label: st.lab[i.key] ?? i.label}));
+  const padT = 18, padB = 46, bw = 340, bh = 238;            // axes box ≈ 1.43 : 1
+  const X = expRange(u, 'x'), Y = expRange(u, 'y'), dec = s => Math.max(0, -Math.floor(Math.log10(s) + 1e-9));
+  const yt = []; for (let v = Math.ceil(Y.lo / Y.st - 1e-9) * Y.st; v <= Y.hi + Y.st * 1e-6; v += Y.st) yt.push(v);
+  const yfmt = v => (+v.toFixed(dec(Y.st))).toFixed(dec(Y.st)).replace(/^-0(\.0+)?$/, '0$1').replace(/^-/, '\u2212');
+  g.font = `bold 13px ${EXPF}`;
+  const tickW = Math.max(...yt.map(v => g.measureText(yfmt(v)).width)), padL = 6 + 20 + 8 + tickW + 6;   // title, gap, labels, gap
+  const legW = st.legend ? 30 + Math.max(40, ...items.map(i => g.measureText(i.label).width)) + 14 : 18;
+  const W = padL + bw + 14 + legW, H = padT + bh + padB;
+  cv.width = Math.round(W * scale); cv.height = Math.round(H * scale);
+  g.setTransform(scale, 0, 0, scale, 0, 0); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+  const px = v => padL + (v - X.lo) / (X.hi - X.lo) * bw, py = v => padT + bh - (v - Y.lo) / (Y.hi - Y.lo) * bh;
+  // data (clipped to the box)
+  g.save(); g.beginPath(); g.rect(padL, padT, bw, bh); g.clip();
+  for (const it of items) for (const [xs, ys] of it.data) {
+    if (e.kind === 'line') {
+      g.strokeStyle = it.color; g.lineWidth = 1.6; g.lineJoin = 'round'; g.beginPath(); let on = false;
+      for (let i = 0; i < xs.length; i++) { const y = ys[i]; if (y == null || !isFinite(y)) { on = false; continue; }
+        on ? g.lineTo(px(xs[i]), py(y)) : g.moveTo(px(xs[i]), py(y)); on = true; }
+      g.stroke();
+    } else {
+      g.lineWidth = 1.5; g.strokeStyle = it.color; g.fillStyle = st.fill ? it.color : '#fff';
+      for (let i = 0; i < xs.length; i++) { const y = ys[i]; if (y == null || !isFinite(y)) continue;
+        g.beginPath(); g.arc(px(xs[i]), py(y), 4.3, 0, 2 * Math.PI); g.fill(); g.stroke(); }
+    }
+  }
+  g.restore();
+  // box + inward ticks on all four sides, labels left/bottom
+  g.strokeStyle = '#000'; g.lineWidth = 1.5; g.strokeRect(padL, padT, bw, bh);
+  g.fillStyle = '#000'; g.font = `bold 13px ${EXPF}`; g.lineWidth = 1.2;
+  for (let v = Math.ceil(X.lo / X.st - 1e-9) * X.st; v <= X.hi + X.st * 1e-6; v += X.st) {
+    const x = px(v); g.beginPath(); g.moveTo(x, padT + bh); g.lineTo(x, padT + bh - 6); g.moveTo(x, padT); g.lineTo(x, padT + 6); g.stroke();
+    g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText((+v.toFixed(dec(X.st))).toFixed(dec(X.st)), x, padT + bh + 6);
+  }
+  for (const v of yt) {
+    const y = py(v); g.beginPath(); g.moveTo(padL, y); g.lineTo(padL + 6, y); g.moveTo(padL + bw, y); g.lineTo(padL + bw - 6, y); g.stroke();
+    g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillText(yfmt(v), padL - 6, y);
+  }
+  drawRich(g, e.xlab, padL + bw / 2, padT + bh + 38, 15);                       // close under the tick labels
+  g.save(); g.translate(padL - 6 - tickW - 9, padT + bh / 2); g.rotate(-Math.PI / 2); drawRich(g, e.ylab, 0, 0, 15); g.restore();
+  // legend, right of the box
+  if (st.legend) {
+    g.font = `bold 13px ${EXPF}`; g.textAlign = 'left'; g.textBaseline = 'middle';
+    items.forEach((it, i) => { const x = padL + bw + 18, y = padT + 10 + i * 21;
+      if (e.kind === 'line') { g.strokeStyle = it.color; g.lineWidth = 2.2; g.beginPath(); g.moveTo(x, y); g.lineTo(x + 18, y); g.stroke(); }
+      else { g.lineWidth = 1.5; g.strokeStyle = it.color; g.fillStyle = st.fill ? it.color : '#fff'; g.beginPath(); g.arc(x + 9, y, 4.3, 0, 2 * Math.PI); g.fill(); g.stroke(); }
+      g.fillStyle = '#000'; g.fillText(it.label, x + 26, y); });
+  }
+}
+let EXPU = null; const EXPST = {col: {}, lab: {}, fill: false, legend: true};
+function today() { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`; }
+function expRedraw() { if (EXPU) drawFig($('#expcv'), EXPU, EXPST, 2); }
+function openExport(u) {
+  if (!u || !u.exp || !u.exp.items.length) { status('Nothing to export'); return; }
+  EXPU = u;
+  EXPST.col = {}; EXPST.lab = {};
+  $('#exptitle').textContent = 'Export PNG · ' + (u.expTitle || u.exp.name);
+  $('#explist').innerHTML = u.exp.items.map(i => `<input type="color" data-key="${i.key}" value="${i.color}"><input type="text" data-key="${i.key}" value="${i.label}">`).join('');
+  $('#explist').querySelectorAll('input').forEach(inp => inp.oninput = () => {
+    (inp.type === 'color' ? EXPST.col : EXPST.lab)[inp.dataset.key] = inp.value; expRedraw(); });
+  $('#expfill').checked = EXPST.fill; $('#explegon').checked = EXPST.legend;
+  $('#expname').value = `${today()}_${u.exp.name}_${u.exp.kind === 'line' ? '' : u.exp.items.map(i => i.key).join('-')}`.replace(/_$/, '') + '.png';
+  $('#exp').showModal(); expRedraw();
+}
+$('#expfill').onchange = e => { EXPST.fill = e.target.checked; expRedraw(); };
+$('#explegon').onchange = e => { EXPST.legend = e.target.checked; expRedraw(); };
+$('#expx').onclick = () => $('#exp').close();
+$('#expsave').onclick = async () => {
+  const cv = document.createElement('canvas'); drawFig(cv, EXPU, EXPST, EXPSCALE);
+  const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+  let name = $('#expname').value.trim() || 'plot.png'; if (!/\.png$/i.test(name)) name += '.png';
+  try {
+    if (window.showSaveFilePicker) {        // Chrome / Edge: asks where to save
+      const h = await showSaveFilePicker({suggestedName: name, types: [{description: 'PNG image', accept: {'image/png': ['.png']}}]});
+      const w = await h.createWritable(); await w.write(blob); await w.close(); status('Saved ' + h.name); NQP.log('export', {name: EXPU.exp.name});
+    } else {                                // other browsers: normal download
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      status('Downloaded ' + name); NQP.log('export', {name: EXPU.exp.name});
+    }
+    $('#exp').close();
+  } catch (err) { if (err.name !== 'AbortError') status('Save failed: ' + err.message); }
+};
+
+// ---------------- events ----------------
+buildModules(); buildModeBar();
+$('#add').onclick = () => { addCells($('#bc').value); $('#bc').value = ''; };
+$('#bc').addEventListener('keydown', e => { if (e.key === 'Enter') { addCells($('#bc').value); $('#bc').value = ''; } });
+$('#plot').onclick = plotAll;
+let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => {
+  for (const id in rendered) rendered[id].sig = null; plotAll(); }, 250); });   // redraw so axis boxes re-position
+NQP.boot();
+</script>
+</body>
+</html>
