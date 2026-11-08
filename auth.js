@@ -76,10 +76,21 @@ function route(s) {
 // ---------- links from the emails (verify / approve / deny) ----------
 // The emails link here instead of to script.google.com, so they also open in browsers signed in to several Google accounts.
 async function linkStep(q) {
+  const args = {a: q.get('a'), d: q.get('d') || '', c: q.get('c') || '', s: q.get('s') || ''};
+  const ask = async extra => {
+    try { return await call('link', Object.assign({}, args, extra)); }
+    catch (e) { return {title: 'Cannot reach the login server.', msg: esc(e.message)}; }
+  };
   gate(`${TITLE}<p class="gmuted">Checking the link…</p>`);
-  let r;
-  try { r = await call('link', {a: q.get('a'), d: q.get('d') || '', c: q.get('c') || '', s: q.get('s') || ''}); }
-  catch (e) { r = {title: 'Cannot reach the login server.', msg: esc(e.message)}; }
+  let r = await ask({});
+  if (r.need_confirm) { // approve / deny: mail scanners open links by themselves, so a person has to click
+    const c = gate(`${TITLE}<p><b>${esc(r.title)}</b></p><p>${r.msg || ''}</p>
+      <button class="primary" id="g_yes">${args.a === 'approve' ? 'Approve' : 'Deny'}</button> <button id="g_no">Cancel</button>`);
+    const yes = await new Promise(res => { $('#g_yes', c).onclick = () => res(true); $('#g_no', c).onclick = () => res(false); });
+    if (!yes) { history.replaceState(null, '', location.pathname); return location.reload(); }
+    gate(`${TITLE}<p class="gmuted">Saving…</p>`);
+    r = await ask({confirm: true});
+  }
   history.replaceState(null, '', location.pathname);
   const c = gate(`${TITLE}<p><b>${esc(r.title)}</b></p><p>${r.msg || ''}</p><button class="primary" id="g_cont">OK</button>`);
   $('#g_cont', c).onclick = () => location.reload();
