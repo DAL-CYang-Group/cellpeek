@@ -112,7 +112,7 @@
 </head>
 <body>
 <header>
-  <h1>CellPeek - DAL <span style="font-weight:400;color:#6b7480;font-size:12px"><a href="#" id="ver" title="Version history">beta 0.1.1</a> · by <a href="https://www.yang-dal.com/" target="_blank" rel="noopener">Chongyin Yang</a></span></h1>
+  <h1>CellPeek - DAL <span style="font-weight:400;color:#6b7480;font-size:12px"><a href="#" id="ver" title="Version history">beta 0.1.2</a> · by <a href="https://www.yang-dal.com/" target="_blank" rel="noopener">Chongyin Yang</a></span></h1>
   <input id="bc" type="text" placeholder="e.g. 1169067, 1169068; 1169158  then Enter">
   <button id="add">Add</button>
   <button id="plot" class="primary">Plot</button>
@@ -129,10 +129,10 @@
 <main id="mods"></main>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.1.1"></script>
-<script src="versions.js?v=0.1.1"></script>
-<script src="data.js?v=0.1.1"></script>
-<script src="auth.js?v=0.1.1"></script>
+<script src="config.js?v=0.1.2"></script>
+<script src="versions.js?v=0.1.2"></script>
+<script src="data.js?v=0.1.2"></script>
+<script src="auth.js?v=0.1.2"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -210,7 +210,7 @@ const M = [
 const OPT_HTML = {
   unit:   `Unit <select data-k="unit"><option value="g">mAh/g</option><option value="mAh">mAh</option></select>`,
   ref:    `Normalize to cycle <input type="number" data-k="ref" value="1" min="1">`,
-  dvmode: `<select data-k="dvmode"><option value="abs">ΔV (V)</option><option value="diff">ΔV − ΔV<sub>ref</sub> (mV)</option></select>
+  dvmode: `<select data-k="dvmode"><option value="abs">ΔV (V)</option><option value="diff">ΔV − ΔV<sub>ref</sub> (mV)</option><option value="ratio">ΔV / ΔV<sub>ref</sub></option></select>
            ref cycle <input type="number" data-k="dvref" value="11" min="1">`,
   cycsel: `Cycles <input type="text" data-k="clist" value="" placeholder="e.g. 1, 2; 9  50  or 10-20" style="width:210px" title="Separate with tab, spaces, comma or ;  ·  a-b = every cycle from a to b  ·  leave empty to use the range">
            <span class="or">or every</span> <input type="number" data-k="cstep" value="5" min="1"> from <input type="number" data-k="c0" value="1" min="1"> to <input type="number" data-k="c1" value="50" min="1">`,
@@ -318,21 +318,21 @@ function seriesFor(m, s, c) {
   const cy = c.data.cycles, X = [], Y = [];
   let ref = null;
   if (m.y === 'n') { const r = cy.find(e => e.k === +s.ref); if (!r) return null; ref = r.qd; }
-  if (m.y === 'dv' && s.dvmode === 'diff') { const r = cy.find(e => e.k === +s.dvref); if (!r || r.dv == null) return null; ref = r.dv; }
+  if (m.y === 'dv' && s.dvmode !== 'abs') { const r = cy.find(e => e.k === +s.dvref); if (!r || r.dv == null || (s.dvmode === 'ratio' && !r.dv)) return null; ref = r.dv; }
   for (const e of cy) {
     const x = m.x === 'cyc' ? e.k : e.t_h; if (x == null) continue;
     let y = null;
     if (m.y === 'q') y = s.unit === 'mAh' ? e.qd_mAh : e.qd;
     else if (m.y === 'n') y = 100 * e.qd / ref;
     else if (m.y === 'ce') y = e.ce;
-    else if (m.y === 'dv') y = e.dv == null ? null : (s.dvmode === 'diff' ? 1000 * (e.dv - ref) : e.dv);
+    else if (m.y === 'dv') y = e.dv == null ? null : s.dvmode === 'diff' ? 1000 * (e.dv - ref) : s.dvmode === 'ratio' ? e.dv / ref : e.dv;
     if (y == null || !isFinite(y)) continue;
     X.push(x); Y.push(y);
   }
   return [X, Y];
 }
 const YLAB = {q: s => s.unit === 'mAh' ? 'Discharge capacity (mAh)' : 'Specific discharge capacity (mAh/g)', n: s => `Capacity vs cycle ${s.ref} (%)`,
-              ce: () => 'Coulombic efficiency (%)', dv: s => s.dvmode === 'diff' ? `ΔV − ΔV(${s.dvref}) (mV)` : 'ΔV = V̄chg − V̄dis (V)'};
+              ce: () => 'Coulombic efficiency (%)', dv: s => s.dvmode === 'diff' ? `ΔV − ΔV(${s.dvref}) (mV)` : s.dvmode === 'ratio' ? `ΔV / ΔV(${s.dvref})` : 'ΔV = V̄chg − V̄dis (V)'};
 
 // ---------------- plotting ----------------
 // axis limits live on the axes themselves: LIM[module] = {xmin,xmax,ymin,ymax}; null = autoscale
@@ -405,6 +405,27 @@ const AX = (a, size) => ({label: ' ', labelSize: 22, size, gap: 4,
     return splits.map(v => { const p = u.valToPos(v, a); return (p < keep || p > len - keep) ? '' : tickFmt(v, incr); });
   }});
 function width(el) { return Math.max(320, el.clientWidth); }
+// normalized plots: % of the last cycle, written just right of the plot area
+function spreadLabels(labs, gap, lo, hi) { // keep labels apart vertically, inside [lo, hi]
+  labs.forEach(l => l.y = Math.min(hi, Math.max(lo, l.y)));
+  labs.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labs.length; i++) if (labs[i].y < labs[i - 1].y + gap) labs[i].y = labs[i - 1].y + gap;
+  for (let i = labs.length - 1; i >= 0; i--) { const lim = i === labs.length - 1 ? hi : labs[i + 1].y - gap; if (labs[i].y > lim) labs[i].y = lim; }
+  return labs;
+}
+const pctText = v => v.toFixed(1) + '%';
+function endPctHook(u, ser) {
+  const ctx = u.ctx, pr = uPlot.pxRatio || 1, b = u.bbox, labs = [];
+  ser.forEach((o, i) => {
+    const X = o.r[0], Y = o.r[1], n = X.length - 1; if (n < 0) return;
+    if (X[n] < u.scales.x.min || X[n] > u.scales.x.max) return; // last cycle zoomed out of view
+    labs.push({y: u.valToPos(Y[n], 'y', true), t: pctText(Y[n]), c: o.c.color});
+  });
+  spreadLabels(labs, 13 * pr, b.top, b.top + b.height);
+  ctx.save(); ctx.font = `600 ${11.5 * pr}px -apple-system, "Segoe UI", sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (const l of labs) { ctx.fillStyle = l.c; ctx.fillText(l.t, b.left + b.width + 5 * pr, l.y); }
+  ctx.restore();
+}
 function scatterPlot(m, s, el) {
   const used = cells.filter(c => c.data), ser = [], data = [], miss = [];
   for (const c of used) { const r = seriesFor(m, s, c); if (r && r[0].length) { ser.push({c, r}); } else miss.push(c.bc); }
@@ -418,11 +439,12 @@ function scatterPlot(m, s, el) {
     series: [{}].concat(ser.map(o => ({label: o.c.bc, stroke: o.c.color, width: 0, paths: () => null,
       points: {show: true, size: 8, width: 1.4, stroke: o.c.color, fill: '#fff'}}))),
   };
+  if (m.y === 'n') { opts.padding = [null, 58, null, null]; opts.hooks = {draw: [u => endPctHook(u, ser)]}; }
   el.innerHTML = ''; const u = new uPlot(opts, aligned, el);
   axisOverlay(u, m, m.x === 'cyc' ? 'Cycle number' : 'Time (h)', YLAB[m.y](s));
-  u.exp = {kind: 'pts', name: m.id, xlab: m.x === 'cyc' ? 'Cycle number' : 'Time (h)', ylab: YLAB[m.y](s),
+  u.exp = {kind: 'pts', endPct: m.y === 'n', name: m.id, xlab: m.x === 'cyc' ? 'Cycle number' : 'Time (h)', ylab: YLAB[m.y](s),
            items: ser.map(o => ({key: o.c.bc, label: o.c.bc, color: o.c.color, data: [[o.r[0], o.r[1]]]}))};
-  let note = (m.y === 'n' || (m.y === 'dv' && s.dvmode === 'diff')) && miss.length ? `No reference cycle: ${miss.join(', ')}` : '';
+  let note = (m.y === 'n' || (m.y === 'dv' && s.dvmode !== 'abs')) && miss.length ? `No reference cycle: ${miss.join(', ')}` : '';
   return {plots: [u], note: note + '  (drag to zoom, double-click to reset)'};
 }
 
@@ -558,7 +580,10 @@ function drawFig(cv, u, st, scale) {
   g.font = `bold 13px ${EXPF}`;
   const tickW = Math.max(...yt.map(v => g.measureText(yfmt(v)).width)), padL = 6 + 20 + 8 + tickW + 6;   // title, gap, labels, gap
   const legW = st.legend ? 30 + Math.max(40, ...items.map(i => g.measureText(i.label).width)) + 14 : 18;
-  const W = padL + bw + 14 + legW, H = padT + bh + padB;
+  const ends = [];
+  if (e.endPct) for (const it of items) { const d = it.data[0]; if (!d || !d[0].length) continue; const n = d[0].length - 1; ends.push({v: d[1][n], t: pctText(d[1][n]), c: it.color}); }
+  const labW = ends.length ? 10 + Math.max(...ends.map(l => g.measureText(l.t).width)) : 0;
+  const W = padL + bw + 14 + labW + legW, H = padT + bh + padB;
   cv.width = Math.round(W * scale); cv.height = Math.round(H * scale);
   g.setTransform(scale, 0, 0, scale, 0, 0); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
   const px = v => padL + (v - X.lo) / (X.hi - X.lo) * bw, py = v => padT + bh - (v - Y.lo) / (Y.hi - Y.lo) * bh;
@@ -590,10 +615,15 @@ function drawFig(cv, u, st, scale) {
   }
   drawRich(g, e.xlab, padL + bw / 2, padT + bh + 38, 15);                       // close under the tick labels
   g.save(); g.translate(padL - 6 - tickW - 9, padT + bh / 2); g.rotate(-Math.PI / 2); drawRich(g, e.ylab, 0, 0, 15); g.restore();
+  if (ends.length) {
+    const labs = spreadLabels(ends.map(l => ({...l, y: py(l.v)})), 15, padT + 6, padT + bh - 6);
+    g.font = `bold 13px ${EXPF}`; g.textAlign = 'left'; g.textBaseline = 'middle';
+    for (const l of labs) { g.fillStyle = l.c; g.fillText(l.t, padL + bw + 6, l.y); }
+  }
   // legend, right of the box
   if (st.legend) {
     g.font = `bold 13px ${EXPF}`; g.textAlign = 'left'; g.textBaseline = 'middle';
-    items.forEach((it, i) => { const x = padL + bw + 18, y = padT + 10 + i * 21;
+    items.forEach((it, i) => { const x = padL + bw + 18 + labW, y = padT + 10 + i * 21;
       if (e.kind === 'line') { g.strokeStyle = it.color; g.lineWidth = 2.2; g.beginPath(); g.moveTo(x, y); g.lineTo(x + 18, y); g.stroke(); }
       else { g.lineWidth = 1.5; g.strokeStyle = it.color; g.fillStyle = st.fill ? it.color : '#fff'; g.beginPath(); g.arc(x + 9, y, 4.3, 0, 2 * Math.PI); g.fill(); g.stroke(); }
       g.fillStyle = '#000'; g.fillText(it.label, x + 26, y); });

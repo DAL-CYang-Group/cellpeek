@@ -15,13 +15,14 @@ let USER = null;
 
 async function call(action, payload = {}) {
   const r = await fetch(C.APPS_SCRIPT_URL, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'},
-    body: JSON.stringify({action, device_id: deviceId(), token: auth().token || '', version: C.APP_VERSION, ...payload})});
+    body: JSON.stringify({action, device_id: deviceId(), token: auth().token || '', version: C.APP_VERSION, ip: IP, ...payload})});
   const j = await r.json(); if (j.error) throw new Error(j.error); return j;
 }
 async function publicIp() {
   try { const c = new AbortController(); setTimeout(() => c.abort(), 3000);
     return (await (await fetch('https://api.ipify.org?format=json', {signal: c.signal})).json()).ip || ''; } catch { return ''; }
 }
+let IP = ''; const ipP = publicIp().then(x => (IP = x));
 
 // ---------- gate (full-screen card shown until the user may use the page) ----------
 function gate(html) { const g = $('#gate'); g.hidden = false; $('#gatecard').innerHTML = html; return $('#gatecard'); }
@@ -63,7 +64,7 @@ function showBlocked(s) {
 }
 async function check() {
   clearTimeout(pollT);
-  try { route(await call('session')); } catch (e) { gate(`${TITLE}<p class="gerr">Cannot reach the login server: ${esc(e.message)}</p><button onclick="location.reload()">Retry</button>`); }
+  try { await ipP; route(await call('session')); } catch (e) { gate(`${TITLE}<p class="gerr">Cannot reach the login server: ${esc(e.message)}</p><button onclick="location.reload()">Retry</button>`); }
 }
 function route(s) {
   if (s.status === 'approved') return approved(s);
@@ -177,7 +178,7 @@ NQP.log = (event, detail) => {
 function flush(beacon) {
   if (!queue.length || !USER) return;
   const events = queue.splice(0, 50);
-  const body = JSON.stringify({action: 'log', device_id: deviceId(), token: auth().token, version: C.APP_VERSION, events});
+  const body = JSON.stringify({action: 'log', device_id: deviceId(), token: auth().token, version: C.APP_VERSION, ip: IP, events});
   fetch(C.APPS_SCRIPT_URL, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body, keepalive: !!beacon}).catch(() => {});
 }
 setInterval(flush, 30000);
