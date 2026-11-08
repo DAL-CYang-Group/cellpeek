@@ -73,6 +73,18 @@ function route(s) {
   LS.del('nqp_auth'); showRegister();
 }
 
+// ---------- links from the emails (verify / approve / deny) ----------
+// The emails link here instead of to script.google.com, so they also open in browsers signed in to several Google accounts.
+async function linkStep(q) {
+  gate(`${TITLE}<p class="gmuted">Checking the link…</p>`);
+  let r;
+  try { r = await call('link', {a: q.get('a'), d: q.get('d') || '', c: q.get('c') || '', s: q.get('s') || ''}); }
+  catch (e) { r = {title: 'Cannot reach the login server.', msg: esc(e.message)}; }
+  history.replaceState(null, '', location.pathname);
+  const c = gate(`${TITLE}<p><b>${esc(r.title)}</b></p><p>${r.msg || ''}</p><button class="primary" id="g_cont">OK</button>`);
+  $('#g_cont', c).onclick = () => location.reload();
+}
+
 // ---------- after approval ----------
 function approved(s) {
   clearTimeout(pollT);
@@ -231,6 +243,8 @@ NQP.boot = async function () {
     srcLabel(); return openPage();
   }
   if (!C.APPS_SCRIPT_URL) { USER = null; return dataStep(); }     // no login configured (testing)
+  const q = new URLSearchParams(location.search);
+  if (/^(verify|approve|deny)$/.test(q.get('a') || '')) return linkStep(q);   // opened from an email link
   if (!auth().token) return showRegister();
   gate(`${TITLE}<p class="gmuted">Signing in…</p>`); check();
 };
