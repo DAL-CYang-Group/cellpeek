@@ -48,6 +48,24 @@ function showRegister(msg) {
 let pollT = null;
 function showWaiting(s) {
   const a = auth(), verify = s.status === 'unverified';
+  if (verify) {                                  // type the 6-digit code from the email (no link: mail scanners open links by themselves)
+    clearTimeout(pollT);
+    const c = gate(`${TITLE}<p>We sent a 6-digit code to <b>${esc(a.email)}</b>. Please type it here (check Junk too).</p>
+      <label>Code<input id="g_code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></label>
+      <div class="gerr"></div><button class="primary" id="g_ver">Verify</button> <button id="g_over">Start over</button>`);
+    const go = async () => {
+      const code = $('#g_code', c).value.replace(/\D/g, '');
+      if (code.length !== 6) return ($('.gerr', c).textContent = 'Please enter the 6 digits.');
+      $('#g_ver', c).disabled = true; $('.gerr', c).textContent = 'Checking…';
+      try { route(await call('verify', {code})); }
+      catch (e) { $('#g_ver', c).disabled = false; $('.gerr', c).textContent = e.message; }
+    };
+    $('#g_ver', c).onclick = go;
+    $('#g_code', c).onkeydown = ev => { if (ev.key === 'Enter') go(); };
+    $('#g_over', c).onclick = () => logout(true);
+    $('#g_code', c).focus();
+    return;
+  }
   const c = gate(`${TITLE}<p>${verify
       ? `We sent a verification link to <b>${esc(a.email)}</b>. Please open it (check Junk too).`
       : `Thanks, <b>${esc(a.email)}</b> is verified. Waiting for the administrator to approve this computer.`}</p>

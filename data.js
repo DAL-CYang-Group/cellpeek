@@ -32,7 +32,7 @@ NQP.idb = idb;
 // ---------- local folder source ----------
 const PV = 4;                                    // parser version (parser.js PARSER_VERSION)
 const local = {
-  root: null, roots: [], lists: new Map(), mem: new Map(), worker: null, jobs: new Map(), jobId: 0,
+  root: null, roots: [], lists: new Map(), mem: new Map(), workers: null, jobs: new Map(), jobId: 0,
   async resolveRoots(h) {                        // CYCLING -> NEWARE/CC_NEWAREB12A + NEWARE; NEWARE -> its CC_NEWAREB12A + itself; else itself
     const sub = async (d, n) => { try { return await d.getDirectoryHandle(n); } catch { return null; } };
     let neware = h.name.toUpperCase() === 'NEWARE' ? h : await sub(h, 'NEWARE');
@@ -41,16 +41,25 @@ const local = {
     return cc ? [cc, neware] : [neware];
   },
   async use(h) { this.root = h; this.roots = await this.resolveRoots(h); this.lists.clear(); },
-  async list(d, force) {                         // directory listing, cached 10 min (memory) and across visits (IndexedDB)
-    const key = d.name + '|' + (d === this.root ? 'root' : ''), hit = this.lists.get(d);
-    if (hit && !force && Date.now() - hit.t < 600000) return hit.items;
-    if (!force && !hit) { const saved = await idb.get('ls:' + this.root.name + '/' + d.name).catch(() => null);
-      if (saved && Date.now() - saved.t < 600000) { this.lists.set(d, saved); return saved.items; } }
-    const items = [];
-    for await (const [name, e] of d.entries()) items.push([name, e.kind]);
-    const rec = {t: Date.now(), items}; this.lists.set(d, rec);
-    idb.set('ls:' + this.root.name + '/' + d.name, rec).catch(() => {});
-    return items;
+  pending: new Map(),
+  async list(d, force) {                         // directory listing: memory -> IndexedDB (kept until a barcode is missing) -> disk
+    const key = 'ls:' + this.root.name + '/' + d.name, hit = this.lists.get(key);
+    if (hit && (!force || Date.now() - hit.t < 60000)) return hit.items;        // force: reuse a listing made in the last minute
+    if (!force && !hit) { const saved = await idb.get(key).catch(() => null);
+      if (saved) { this.lists.set(key, saved); return saved.items; } }
+    if (this.pending.has(key)) return this.pending.get(key);                   // one listing per folder at a time, shared by all cells
+    const p = (async () => {
+      const items = [], t0 = Date.now();
+      const read = (async () => { for await (const [name, e] of d.entries()) items.push([name, e.kind]); })();
+      let tm; const slow = new Promise((_, rej) => { tm = setTimeout(() => rej(new Error(`folder ${d.name} is not responding`)), 180000); });
+      try { await Promise.race([read, slow]); } finally { clearTimeout(tm); }
+      const rec = {t: Date.now(), items}; this.lists.set(key, rec);
+      idb.set(key, rec).catch(() => {});
+      NQP.log && NQP.log('list', {dir: d.name, n: items.length, ms: Date.now() - t0});
+      return items;
+    })().finally(() => this.pending.delete(key));
+    this.pending.set(key, p);
+    return p;
   },
   match: (bc, n) => n.toLowerCase().endsWith('.txt') && new RegExp('(?<!\\d)' + bc + '(?!\\d)').test(n),
   async find(bc) {
@@ -71,12 +80,13 @@ const local = {
     out.sort((a, b) => b.size - a.size);         // largest first (empty stubs / partial exports last)
     return out;
   },
-  parseInWorker(file) {
-    if (!this.worker) { this.worker = new Worker('parser.js');
-      this.worker.onmessage = (ev) => { const j = this.jobs.get(ev.data.id); if (!j) return; this.jobs.delete(ev.data.id);
-        ev.data.error ? j.rej(new Error(ev.data.error)) : j.res(ev.data.data); }; }
-    const id = ++this.jobId;
-    return new Promise((res, rej) => { this.jobs.set(id, {res, rej}); this.worker.postMessage({id, file}); });
+  parseInWorker(file) {                          // up to 4 workers, so several files parse at the same time
+    if (!this.workers) { const n = Math.min(4, navigator.hardwareConcurrency || 2);
+      this.workers = Array.from({length: n}, () => { const w = new Worker('parser.js');
+        w.onmessage = (ev) => { const j = this.jobs.get(ev.data.id); if (!j) return; this.jobs.delete(ev.data.id);
+          ev.data.error ? j.rej(new Error(ev.data.error)) : j.res(ev.data.data); }; return w; }); }
+    const id = ++this.jobId, w = this.workers[id % this.workers.length];
+    return new Promise((res, rej) => { this.jobs.set(id, {res, rej}); w.postMessage({id, file}); });
   },
   async data(pick) {
     const key = `${pick.name}|${pick.size}|${pick.mtime}|${PV}`;
