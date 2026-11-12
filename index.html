@@ -112,6 +112,12 @@
   .cyc-legend { font-size:11.5px; display:flex; flex-wrap:wrap; gap:2px 8px; margin-top:2px; }
   .dirty { box-shadow: inset 3px 0 0 #e8a33a; }
   .u-legend { display:none; }
+  .xh { position:absolute; pointer-events:none; display:none; }
+  .xh.v { top:0; bottom:0; width:0; border-left:1px dashed #8a93a0; } .xh.h { left:0; right:0; height:0; border-top:1px dashed #8a93a0; }
+  .xh.snap { border-color:var(--c, #8a93a0); }
+  .xyread { position:absolute; top:3px; right:6px; z-index:3; pointer-events:none; display:none; font-size:11.5px; line-height:16px; padding:0 6px; border-radius:4px;
+            background:rgba(255,255,255,.88); color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .xyread b { font-weight:600; }
   [hidden] { display:none !important; }
   header h1 a { color:inherit; text-decoration:none; }
   header h1 a:hover { color:var(--accent); text-decoration:underline; }
@@ -219,9 +225,8 @@
   <span id="who" hidden></span>
 </header>
 <div class="toolbar" data-pane="neware">
-  <input id="bc" type="text" placeholder="e.g. 1169067, 1169068  or a range 1172140-1172160, then Enter" title="Separate barcodes with spaces, commas or ;  ·  a range: 1172140-1172160 (or 1172140-160), spaces allowed">
+  <input id="bc" type="text" placeholder="e.g. 1169067, 1169068  or a range 1172140-150, then Enter" title="Separate barcodes with spaces, commas or ;  ·  a range: 1172140-1172150, or only the last digits: 1172140-150 or 1172140-50 (same range); spaces allowed">
   <button id="add">Add</button>
-  <button id="plot" class="primary">Plot</button>
   <span class="sp"></span>
   <span id="src" hidden></span>
 </div>
@@ -350,9 +355,9 @@ const M = [
   {id:'dqdv',  title:'dQ/dV',                   x:'v',    y:'dq', opts:['cycsel','smooth']},
 ];
 const OPT_HTML = {
-  unit:   `Unit <select data-k="unit"><option value="g">mAh/g</option><option value="mAh">mAh</option></select>`,
+  unit:   `Unit <select data-k="unit"><option value="mAh" selected>mAh</option><option value="g">mAh/g</option></select>`,
   ref:    `Normalize to cycle <input type="number" data-k="ref" value="1" min="1">`,
-  dvmode: `<select data-k="dvmode"><option value="abs">ΔV (V)</option><option value="diff">ΔV − ΔV<sub>ref</sub> (mV)</option><option value="ratio">ΔV / ΔV<sub>ref</sub></option></select>
+  dvmode: `<select data-k="dvmode"><option value="abs">ΔV (V)</option><option value="diff">ΔV − ΔV<sub>ref</sub> (V)</option><option value="ratio">ΔV / ΔV<sub>ref</sub></option></select>
            ref cycle <input type="number" data-k="dvref" value="11" min="1">`,
   cycsel: `Cycles <input type="text" data-k="clist" value="" placeholder="e.g. 1, 2; 9  50  or 10-20" style="width:210px" title="Separate with tab, spaces, comma or ;  ·  a-b = every cycle from a to b  ·  leave empty to use the range">
            <span class="or">or every</span> <input type="number" data-k="cstep" value="5" min="1"> from <input type="number" data-k="c0" value="1" min="1"> to <input type="number" data-k="c1" value="50" min="1">`,
@@ -363,7 +368,7 @@ const OPT_HTML = {
              <option value="5_5">Heavy: 5 mV grid + 5-pt</option>
              <option value="10_3">Very heavy: 10 mV grid + 3-pt</option></select>`,
 };
-const DEFAULT_ON = {qcyc:true, ncyc:true, dvcyc:true, dqdv:true};
+const DEFAULT_ON = {qcyc:true, dvcyc:true};
 const ON = {...DEFAULT_ON};
 
 function buildModules() {
@@ -376,7 +381,7 @@ function buildModules() {
       <div class="plot"></div><div class="note"></div>`;
     box.appendChild(d);
     d.addEventListener('input', e => { if (e.target.closest('.uplot')) return; syncShow(d); markDirty(); });
-    const eb = $('.expbtn', d); if (eb) eb.onclick = () => { const r = rendered[m.id]; if (r && r.plots[0]) openExport(r.plots[0]); else status('Plot first, then export'); };
+    const eb = $('.expbtn', d); if (eb) eb.onclick = () => { const r = rendered[m.id]; if (r && r.plots[0]) openExport(r.plots[0]); else status('Add a cell first'); };
     syncShow(d);
   }
 }
@@ -397,9 +402,12 @@ function settings(m) {
   d.querySelectorAll('[data-k]').forEach(e => o[e.dataset.k] = e.type === 'checkbox' ? e.checked : e.value);
   return o;
 }
-function markDirty() {
+function showDirty() {
   for (const m of M) $('#mod-' + m.id).classList.toggle('dirty', sigOf(m) !== (rendered[m.id] || {}).sig);
 }
+// anything changed (cells, colours, settings, modules on/off): redraw by itself shortly after the last change
+let autoT = null;
+function markDirty() { showDirty(); clearTimeout(autoT); autoT = setTimeout(plotAll, 250); }
 
 // ---------------- cells ----------------
 function nextColor() { const used = new Set(cells.map(c => c.color)); return PALETTE.find(c => !used.has(c)) || '#' + Math.floor(Math.random()*0xffffff).toString(16).padStart(6,'0'); }
@@ -580,14 +588,14 @@ function seriesFor(m, s, c) {
     if (m.y === 'q') y = s.unit === 'mAh' ? e.qd_mAh : e.qd;
     else if (m.y === 'n') y = 100 * e.qd / ref;
     else if (m.y === 'ce') y = e.ce;
-    else if (m.y === 'dv') y = e.dv == null ? null : s.dvmode === 'diff' ? 1000 * (e.dv - ref) : s.dvmode === 'ratio' ? e.dv / ref : e.dv;
+    else if (m.y === 'dv') y = e.dv == null ? null : s.dvmode === 'diff' ? e.dv - ref : s.dvmode === 'ratio' ? e.dv / ref : e.dv;
     if (y == null || !isFinite(y)) continue;
     X.push(x); Y.push(y);
   }
   return [X, Y];
 }
-const YLAB = {q: s => s.unit === 'mAh' ? 'Discharge capacity (mAh)' : 'Specific discharge capacity (mAh/g)', n: s => `Capacity vs cycle ${s.ref} (%)`,
-              ce: () => 'Coulombic efficiency (%)', dv: s => s.dvmode === 'diff' ? `ΔV − ΔV(${s.dvref}) (mV)` : s.dvmode === 'ratio' ? `ΔV / ΔV(${s.dvref})` : 'ΔV = V̄chg − V̄dis (V)'};
+const YLAB = {q: s => s.unit === 'mAh' ? 'Capacity (mAh)' : 'Capacity (mAh/g)', n: () => 'Normalized capacity (%)',
+              ce: () => 'Coulombic efficiency (%)', dv: s => s.dvmode === 'diff' ? 'ΔV change (V)' : s.dvmode === 'ratio' ? 'Normalized ΔV' : 'ΔV (V)'};
 
 // ---------------- plotting ----------------
 // axis limits live on the axes themselves: LIM[module] = {xmin,xmax,ymin,ymax}; null = autoscale
@@ -609,7 +617,49 @@ function fmtLim(v, span) {
   const d = Math.min(4, Math.max(0, 2 - Math.floor(Math.log10(Math.abs(span) || 1))));
   return (+v.toFixed(d)).toString();
 }
+// crosshair + live read-out. The dashed lines live in uPlot's "under" layer, i.e. below the canvas with the data points.
+// Resting the pointer on a data point (within SNAP_PX, for SNAP_MS) snaps the crosshair to it and shows its exact values.
+const SNAP_PX = 5, SNAP_MS = 140;
+function crosshair(u) {
+  const mk = (cls, par) => { const d = document.createElement('div'); d.className = cls; par.appendChild(d); return d; };
+  const vx = mk('xh v', u.under), hy = mk('xh h', u.under), rd = mk('xyread', u.over);
+  const num = (v, span) => { const d = Math.min(6, Math.max(0, 3 - Math.floor(Math.log10(Math.abs(span) || 1)))); return v.toFixed(d).replace('-', '\u2212'); };
+  const val = v => String(+v.toPrecision(6)).replace('-', '\u2212');
+  let snap = null, cand = null, timer = null;
+  const nearest = (cx, cy) => {            // closest data point in screen pixels, over all series
+    const X = u.data[0]; let best = null, bd = SNAP_PX * SNAP_PX;
+    const i0 = Math.max(0, u.valToIdx(u.posToVal(cx - SNAP_PX, 'x')) - 1), i1 = Math.min(X.length - 1, u.valToIdx(u.posToVal(cx + SNAP_PX, 'x')) + 1);
+    for (let si = 1; si < u.data.length; si++) { const Y = u.data[si];
+      for (let i = i0; i <= i1; i++) { const y = Y[i]; if (y == null) continue;
+        const dx = u.valToPos(X[i], 'x') - cx, dy = u.valToPos(y, 'y') - cy, d = dx * dx + dy * dy;
+        if (d <= bd) { bd = d; best = {si, i}; } } }
+    return best;
+  };
+  const draw = () => {
+    const {left: cx, top: cy} = u.cursor;
+    if (cx == null || cx < 0 || cy < 0) { vx.style.display = hy.style.display = rd.style.display = 'none'; return; }
+    let px = cx, py = cy, html;
+    if (snap) { const x = u.data[0][snap.i], y = u.data[snap.si][snap.i], se = u.series[snap.si], c = typeof se.stroke === 'function' ? se.stroke(u, snap.si) : se.stroke;
+      px = u.valToPos(x, 'x'); py = u.valToPos(y, 'y'); vx.style.setProperty('--c', c); hy.style.setProperty('--c', c);
+      html = `<b style="color:${c}">${esc(se.label)}</b>&nbsp; x <b>${val(x)}</b>&nbsp; y <b>${val(y)}</b>`;
+    } else { const sx = u.scales.x, sy = u.scales.y;
+      html = `x ${num(u.posToVal(cx, 'x'), sx.max - sx.min)}&nbsp; y ${num(u.posToVal(cy, 'y'), sy.max - sy.min)}`; }
+    vx.classList.toggle('snap', !!snap); hy.classList.toggle('snap', !!snap);
+    vx.style.left = px + 'px'; hy.style.top = py + 'px'; vx.style.display = hy.style.display = rd.style.display = 'block'; rd.innerHTML = html;
+  };
+  const move = () => {
+    const {left: cx, top: cy} = u.cursor, n = cx != null && cx >= 0 && cy >= 0 ? nearest(cx, cy) : null;
+    const same = (a, b) => a && b && a.si === b.si && a.i === b.i;
+    if (!n) { snap = cand = null; clearTimeout(timer); }
+    else if (same(n, snap)) { /* stay on it */ }
+    else if (!same(n, cand)) { snap = null; cand = n; clearTimeout(timer); timer = setTimeout(() => { snap = cand; draw(); }, SNAP_MS); }
+    draw();
+  };
+  u.hooks.setCursor = (u.hooks.setCursor || []).concat(move);
+  u.hooks.destroy = (u.hooks.destroy || []).concat(() => clearTimeout(timer));
+}
 function axisOverlay(u, m, xlab, ylab) {
+  crosshair(u);
   const L = LIM[m.id] || (LIM[m.id] = {}), root = u.root, els = {};
   u.expLim = L; u.expTitle = m.title;
   const box = (key, cls) => {
@@ -635,7 +685,7 @@ function axisOverlay(u, m, xlab, ylab) {
     at(xmin, pl - 12, pb + 8); at(xmax, Math.min(pr - 38, R.width - 52), pb + 8);
     at(ymax, pl - 58, pt - 9); at(ymin, pl - 58, pb - 10);
     at(lx, pl + O.width / 2 - lx.offsetWidth / 2, R.height - 21);
-    at(ly, 2, pt + O.height / 2 - ly.offsetHeight / 2);
+    at(ly, Math.max(0, pl - 10 - 4 - (u._ytw || 30) - 8 - ly.offsetWidth), pt + O.height / 2 - ly.offsetHeight / 2);   // tick 10 + gap 4 + numbers + 8
     at(ly.btn, pl - 60 - ly.btn.offsetWidth - 3, pt - 8);                       // Y auto: left of the top box
     at(lx.btn, parseFloat(xmax.style.left) + 50 - lx.btn.offsetWidth, pb + 30);   // X auto: under the right box
   };
@@ -654,7 +704,12 @@ function axisOverlay(u, m, xlab, ylab) {
 // tick labels: hide the ones that would sit under the editable end boxes, so nothing overlaps
 function tickFmt(v, incr) { const d = Math.max(0, Math.min(6, -Math.floor(Math.log10(incr) + 1e-9)));
   return v.toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d}); }
-const AX = (a, size) => ({label: ' ', labelSize: 22, size, gap: 4,
+// y axis title sits next to the widest tick label (same spacing as the x title), not at the far left
+const AXFONT = '12px system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
+const axTickW = (() => { const g = document.createElement('canvas').getContext('2d'); g.font = AXFONT;
+  return vals => Math.max(0, ...(vals || []).map(v => v ? g.measureText(String(v)).width : 0)); })();
+const AX = (a, size) => ({label: ' ', labelSize: 22, gap: 4, font: AXFONT,
+  size: a === 'y' ? (u, vals) => { const w = Math.ceil(axTickW(vals)); u._ytw = w; return Math.max(size, w + 10 + 4 + 6); } : size,
   values: (u, splits, ai, space, incr) => {
     const pr_ = uPlot.pxRatio || 1, len = (a === 'x' ? u.bbox.width : u.bbox.height) / pr_, keep = a === 'x' ? 54 : 20;
     return splits.map(v => { const p = u.valToPos(v, a); return (p < keep || p > len - keep) ? '' : tickFmt(v, incr); });
@@ -690,7 +745,7 @@ function scatterPlot(m, s, el) {
     width: width(el), height: 320, legend: {show: false},
     scales: scalesFor(s),
     axes: [AX('x', 34), AX('y', 72)],
-    cursor: {drag: {x: true, y: true, uni: 40}},
+    cursor: {x: false, y: false, points: {show: false}, drag: {x: true, y: true, uni: 40}},
     series: [{}].concat(ser.map(o => ({label: o.c.bc, stroke: o.c.color, width: 0, paths: () => null,
       points: {show: true, size: 8, width: 1.4, stroke: o.c.color, fill: '#fff'}}))),
   };
@@ -774,7 +829,7 @@ async function dqdvPlot(m, s, el) {
     if (!arrs.length) { $('.pp', box).innerHTML = '<div class="note">Too few points for dQ/dV</div>'; continue; }
     const pp = $('.pp', box);
     const u = new uPlot({width: width(pp), height: 300, legend: {show: false}, scales: scalesFor(s),
-      cursor: {drag: {x: true, y: true, uni: 40}},
+      cursor: {x: false, y: false, points: {show: false}, drag: {x: true, y: true, uni: 40}},
       axes: [AX('x', 34), AX('y', 72)],
       series: [{}].concat(ser)}, uPlot.join(arrs), pp);
     axisOverlay(u, m, 'Voltage (V)', 'dQ/dV (mAh g⁻¹ V⁻¹)');
@@ -786,7 +841,7 @@ async function dqdvPlot(m, s, el) {
   return {plots, note: (w.bad.length ? `Not understood: ${w.bad.join(', ')} · ` : '') + 'Charge up, discharge down; cycles from dark to light (drag to zoom, double-click to reset)'};
 }
 
-// ---------------- Plot button: redraw only changed modules ----------------
+// ---------------- drawing: only changed modules are redrawn ----------------
 async function drawModule(m) {          // returns true if it redrew
   const sig = sigOf(m), r = rendered[m.id];
   if (r && r.sig === sig) return false;
@@ -796,24 +851,28 @@ async function drawModule(m) {          // returns true if it redrew
   const out = m.id === 'dqdv' ? await dqdvPlot(m, s, el) : scatterPlot(m, s, el);
   $('.note', d).textContent = out.note || ''; rendered[m.id] = {sig, plots: out.plots}; return true;
 }
-async function renderOne(m) { try { if (await drawModule(m)) status(`Redrew: ${m.title}`); } catch (e) { status('Error: ' + e.message); } markDirty(); }
+async function renderOne(m) { try { if (await drawModule(m)) status(`Redrew: ${m.title}`); } catch (e) { status('Error: ' + e.message); } showDirty(); }
+let plotting = false, plotAgain = false, loggedCells = '';
 async function plotAll() {
-  const btn = $('#plot'); btn.disabled = true; const t0 = performance.now(); let n = 0;
+  if (plotting) { plotAgain = true; return; }          // a change during a redraw: redraw once more afterwards
+  plotting = true; const t0 = performance.now(); let n = 0;
   try {
     for (const m of M) if (await drawModule(m)) n++;
-    status(`Redrew ${n} module(s), ${((performance.now()-t0)/1000).toFixed(2)} s`);
-    if (n) NQP.log('plot', {n, cells: cells.filter(c => c.data).map(c => c.bc), modules: M.filter(m => ON[m.id]).map(m => m.id)});
+    if (n) status(`Redrew ${n} module(s), ${((performance.now()-t0)/1000).toFixed(2)} s`);
+    const bcs = cells.filter(c => c.data).map(c => c.bc), key = bcs.join(',');
+    if (n && key && key !== loggedCells) { loggedCells = key; NQP.log('plot', {n, cells: bcs, modules: M.filter(m => ON[m.id]).map(m => m.id)}); }   // usage log: once per set of cells, not per setting change
   } catch (e) { status('Error: ' + e.message); }
-  btn.disabled = false; markDirty();
+  plotting = false; showDirty();
+  if (plotAgain) { plotAgain = false; plotAll(); }
 }
 
 // ---------------- PNG export (publication style: boxed axes, ticks in, legend on the right) ----------------
 const EXPF = 'Arial, Helvetica, sans-serif', EXPSCALE = 4;
 function niceStep(span, n) { const r = span / n, p = Math.pow(10, Math.floor(Math.log10(r))), f = r / p;
   return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p; }
-function expRange(u, a) {      // fixed ends stay exact; autoscaled/zoomed ends snap outward to a tick
-  const sc = u.scales[a], L = (u.expLim || {}), lo = sc.min, hi = sc.max, st = niceStep(hi - lo || 1, a === 'x' ? 6 : 5);
-  return {lo: L[a + 'min'] != null ? lo : Math.floor(lo / st + 1e-9) * st, hi: L[a + 'max'] != null ? hi : Math.ceil(hi / st - 1e-9) * st, st};
+function expRange(u, a) {      // exactly the range the on-screen plot shows now (typed, zoomed or autoscaled); ticks at round values inside it
+  const sc = u.scales[a], lo = sc.min, hi = sc.max;
+  return {lo, hi, st: niceStep(hi - lo || 1, a === 'x' ? 6 : 5)};
 }
 // axis titles: unicode superscripts (⁻¹ ²…) are drawn as real raised small text in Arial, minus as U+2212
 const SUP = {'⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9','⁻':'\u2212','⁺':'+'};
@@ -922,7 +981,6 @@ $('#expsave').onclick = async () => {
 buildModules(); buildModeBar();
 $('#add').onclick = () => { addCells($('#bc').value); $('#bc').value = ''; };
 $('#bc').addEventListener('keydown', e => { if (e.key === 'Enter') { addCells($('#bc').value); $('#bc').value = ''; } });
-$('#plot').onclick = plotAll;
 let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => {
   for (const id in rendered) rendered[id].sig = null; plotAll(); }, 250); });   // redraw so axis boxes re-position
 NQP.boot();
