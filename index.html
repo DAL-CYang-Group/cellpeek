@@ -252,11 +252,11 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.2.2"></script>
-<script src="versions.js?v=0.2.2"></script>
-<script src="data.js?v=0.2.2"></script>
-<script src="auth.js?v=0.2.2"></script>
-<script src="raman.js?v=0.2.2"></script>
+<script src="config.js?v=0.2.3"></script>
+<script src="versions.js?v=0.2.3"></script>
+<script src="data.js?v=0.2.3"></script>
+<script src="auth.js?v=0.2.3"></script>
+<script src="raman.js?v=0.2.3"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -542,9 +542,9 @@ $('#kwall').onchange = e => { if (e.target.checked && NQP.index) NQP.index.readA
 function renderIdx() {
   const el = $('#idx'); if (!NQP.index || NQP.source.mode !== 'local') { el.textContent = ''; return; }
   const st = NQP.index.status(); if (!st.connected) { el.textContent = ''; return; }
-  el.innerHTML = st.scanning ? `Reading file list… ${st.n.toLocaleString()} files`
-    : `File list: ${st.n.toLocaleString()} files${st.t ? ', ' + ago(st.t) : ''} <a href="#" id="idxre" title="Read the data folder again (takes about a minute for big folders)">refresh</a>`;
-  const a = $('#idxre'); if (a) a.onclick = ev => { ev.preventDefault(); NQP.folder.refresh(0); };
+  el.innerHTML = st.building ? `Building file index… ${st.n.toLocaleString()} files, ${st.secs} s (once only)`
+    : `Index: ${st.n.toLocaleString()} files${st.srv ? `, <span title="Built on ${esc(st.srv.host || 'the office PC')} in ${((st.srv.ms || 0) / 1000).toFixed(1)} s; updated twice a day">office PC ${ago(st.srv.t)}</span>` : st.t ? ', ' + ago(st.t) : ''}${st.scanning ? ` <span title="Reading ${st.left} folder(s) again in the background; cells load from the index meanwhile">· updating…</span>` : ` <a href="#" id="idxre" title="Read all ${st.folders} NEWARE folders again">rebuild</a>`}`;
+  const a = $('#idxre'); if (a) a.onclick = ev => { ev.preventDefault(); NQP.folder.refresh(0, true); };
 }
 let idxT, wasScanning = false;
 window.addEventListener('nqp-index', () => {
@@ -559,7 +559,7 @@ window.addEventListener('nqp-index', () => {
     wasScanning = st.scanning;
   }, 200);
 });
-setInterval(renderIdx, 60000);
+setInterval(renderIdx, 2000);
 
 // ---------------- signatures (redraw only changed modules) ----------------
 function sigOf(m) {

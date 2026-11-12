@@ -18,6 +18,7 @@ async function call(action, payload = {}) {
     body: JSON.stringify({action, device_id: deviceId(), token: auth().token || '', version: C.APP_VERSION, ip: IP, ...payload})});
   const j = await r.json(); if (j.error) throw new Error(j.error); return j;
 }
+NQP.call = call;                                   // data.js: office-PC file index ('index' action)
 async function publicIp() {
   try { const c = new AbortController(); setTimeout(() => c.abort(), 3000);
     return (await (await fetch('https://api.ipify.org?format=json', {signal: c.signal})).json()).ip || ''; } catch { return ''; }

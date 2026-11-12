@@ -1,0 +1,36 @@
+CellPeek beta 0.2.3 (2026-11-12) — front end + office-PC index script + small Code.gs addition
+
+Order:
+  A. Office PC: build_index.py is already in G:\My Drive\Claude\CellPeek\tools; check DATA / OUT at the top of
+     build_index.py, run once in a Command Prompt:  py "G:\My Drive\Claude\CellPeek\tools\build_index.py" --install  (creates tasks at 06:00 and 12:00 and builds the index once).
+     cellpeek_index.json appears in G:\My Drive\Claude\CellPeek (next to the "CellPeek backend" Sheet).
+  B. Apps Script: apply tools/Code_gs_index_patch.txt and deploy a new version.
+  C. GitHub: upload index.html, data.js, auth.js, versions.js, CHANGES_v0.2.3.txt and the tools folder.
+  D. Config sheet: latest version = 0.2.3.
+  The page works without A/B too (it then builds the index in the browser, as below).
+
+What was slow in 0.2.2
+  - A cell found in another NEWARE... folder was not in the saved main list, so every load of it (and every dQ/dV
+    request for it) read CC_NEWAREB12A again (~64 s) and then the other folders.
+  - Every dQ/dV request looked the file up again.
+  - Every page open started a full read of CC_NEWAREB12A right away, competing with the first cell loads on the network drive.
+
+Office-PC index (tools/build_index.py, auth.js, Code.gs)
+  - build_index.py lists CC_NEWAREB12A, NEWARE and the folders inside them with Python (read-only, 4 at a time) and writes
+    cellpeek_index.json (file names only) to the CellPeek Drive folder. Log: tools/build_index.log.
+  - The page asks the backend (action 'index') when it opens; it downloads the index only when it has changed.
+    Folders the browser read more recently are kept. Top right: "Index: n files, office PC 3 h ago".
+  - With this index the browser reads no folders at all, also on first use. A single barcode that is not in it
+    (exported after the last run) still makes the browser read the main folders once.
+  - If the index is older than 14 h (PC off) the browser keeps its own lists up to date as below.
+
+Browser index (data.js)
+1. File index: all NEWARE folders (CC_NEWAREB12A, NEWARE and the folders inside them) are listed once, 4 at a time,
+   and kept in this browser; a barcode -> file map is built from them. Top right: "Building file index… n files, s (once only)".
+2. Loading a cell = map lookup + open that one file by name. No folder is read. Works the same for the old folders.
+3. dQ/dV reuses the file found for the cell.
+4. Index updates in the background: 15 s after the page opens, main folders if older than 30 min, other folders if
+   older than 1 day; a single barcode not in the index reads the main folders again (loaded the moment its name comes past).
+   Barcodes from a range that are not in the index are reported as not found at once (no folder read).
+5. Top right: "Index: n files, x min ago  rebuild" (rebuild = read all folders again); "updating…" while a background read runs.
+6. Usage log: new "index" entry with total files, folders and build time.
