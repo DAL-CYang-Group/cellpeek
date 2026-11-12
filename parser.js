@@ -1,8 +1,9 @@
-// Neware export parser (JavaScript port of server.py parse_neware, PARSER_VERSION 4).
+// Neware export parser (JavaScript port of server.py parse_neware, PARSER_VERSION 5).
 // Runs in a Web Worker in the browser, and under Node for testing. Read-only: it only receives file bytes.
-// Handles the old and new Neware exports (UTF-16; cycle / step / data levels with 0 / 3 / 6 leading tabs).
+// Handles the old and new Neware exports (UTF-16; cycle / step / data levels with 0 / 3 / 6 leading tabs),
+// and the oldest BTS export (UTF-8; 0 / 1 / 2 leading tabs; Cycle ID, Cap(mAh), CmpCap(mAh/g), Vol(mV), Realtime).
 'use strict';
-const PARSER_VERSION = 4;
+const PARSER_VERSION = 5;
 
 function decodeNeware(buf) {
   const b = new Uint8Array(buf);
@@ -47,10 +48,11 @@ function parseNeware(buf) {
   const [L_c, L_s, L_d] = lv, H_c = hdr[L_c], H_s = hdr[L_s], H_d = hdr[L_d];
   const col = (H, ...names) => { for (const n of names) { const i = H.indexOf(n); if (i >= 0) return i; } return null; };
 
-  const dV = col(H_d, 'Voltage(V)', 'Voltage(mV)'), dQ = col(H_d, 'Spec. Cap.(mAh/g)'), dDate = col(H_d, 'Date', 'Realtime', 'Real Time');
-  const sType = col(H_s, 'Step Type'), sQ = col(H_s, 'Spec. Cap.(mAh/g)'), sE = col(H_s, 'Spec. Energy(mWh/g)');
-  const sCap = col(H_s, 'Capacity(Ah)', 'Capacity(mAh)'), capscale = H_s.includes('Capacity(Ah)') ? 1000 : 1;
-  const cIdx = col(H_c, 'Cycle Index');
+  const dV = col(H_d, 'Voltage(V)', 'Voltage(mV)', 'Vol(mV)'), dQ = col(H_d, 'Spec. Cap.(mAh/g)', 'CmpCap(mAh/g)');
+  const dDate = col(H_d, 'Date', 'Realtime', 'Real Time');
+  const sType = col(H_s, 'Step Type'), sQ = col(H_s, 'Spec. Cap.(mAh/g)', 'CmpCap(mAh/g)'), sE = col(H_s, 'Spec. Energy(mWh/g)', 'CmpEng(mWh/g)');
+  const sCap = col(H_s, 'Capacity(Ah)', 'Capacity(mAh)', 'Cap(mAh)'), capscale = H_s.includes('Capacity(Ah)') ? 1000 : 1;
+  const cIdx = col(H_c, 'Cycle Index', 'Cycle ID');
   if ([dV, dQ, sType, sQ, cIdx].includes(null)) throw new Error('required columns missing: ' + H_d.slice(0, 6).join(', '));
   const vscale = H_d[dV] === 'Voltage(V)' ? 1 : 1e-3;
   const nC = H_c.length, nS = H_s.length, nD = H_d.length;
@@ -110,7 +112,7 @@ function parseNeware(buf) {
   for (const [k, d] of vq) { const e = {}; if (d.chg) e.chg = d.chg; if (d.dis) e.dis_raw = d.dis; vqOut[k] = e; }
   let start = null;
   if (firstDate) { const d = new Date(firstDate * 1000); start = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
-  return {fmt: H_d.includes('Voltage(mV)') ? 'old' : 'new', offset: off, start, cycles, vq: vqOut};
+  return {fmt: H_d.includes('Vol(mV)') ? 'bts' : (H_d.includes('Voltage(mV)') ? 'old' : 'new'), offset: off, start, cycles, vq: vqOut};
 }
 
 // pick V-Q curves for cycles ks, applying the offset (same as /api/vq)

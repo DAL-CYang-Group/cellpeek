@@ -37,7 +37,7 @@ NQP.idb = idb;
 //     and dQ/dV reuses the file already found.
 //   * The main folders are listed again in the background when the list is older than 30 min (other folders: 1 day),
 //     or when a single barcode is not in the index (a newly exported cell); it is loaded the moment its name is read.
-const PV = 4;                                    // parser version (parser.js PARSER_VERSION)
+const PV = 5;                                    // parser version (parser.js PARSER_VERSION)
 const STALL_MS = 120000;                         // a folder read that delivers nothing for this long is reported as not responding
 const PAR = 4;                                   // folders read at the same time
 const MAIN_AGE = 30 * 60000, SUB_AGE = 24 * 3600000, FRESH = 15000, SRV_AGE = 14 * 3600000;
