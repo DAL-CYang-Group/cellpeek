@@ -124,11 +124,6 @@ function approved(s) {
   who.innerHTML = `<span title="${esc(s.name)}">${esc(s.email)}</span><a href="#" title="Log out and forget this computer's settings">✕</a>`;
   $('a', who).onclick = ev => { ev.preventDefault(); logout(false); };
   $('#fbbtn').hidden = false;
-  if (s.latest_version && s.latest_version !== C.APP_VERSION) {
-    const b = $('#banner'); b.hidden = false;
-    b.innerHTML = `A newer version (${esc(s.latest_version)}) is available. <a href="#">Reload</a>`;
-    $('a', b).onclick = ev => { ev.preventDefault(); location.reload(); };
-  }
   if (s.notice) { const b = $('#banner'); b.hidden = false; b.insertAdjacentHTML('beforeend', ' ' + esc(s.notice)); }
   NQP.log('open', {ua: navigator.userAgent.slice(0, 160)});
   dataStep();
