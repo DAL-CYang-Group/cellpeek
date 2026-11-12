@@ -1,0 +1,25 @@
+CellPeek beta 0.2.1 (2026-11-12) — front end only, no change to Code.gs
+
+Upload these 5 files to github.com/DAL-CYang-Group/cellpeek (Add file > Upload files; 4 replace existing files, raman.js is new):
+  index.html, auth.js, data.js, versions.js, raman.js
+This folder replaces v0.1.5_upload (0.1.5 was never uploaded; its changes are included here).
+
+Backend: if the config sheet has a "latest version" value, set it to 0.2.1 — otherwise the page shows a "newer version available" banner.
+
+Changes
+1. Tabs in the header: "Neware Cycling" (the existing plots) and "Raman Fitting". The last tab is remembered; .../cellpeek/#raman opens the Raman tab directly.
+2. Data folder: new users are no longer stopped by a "Choose the CYCLING folder" screen. "Data:" (Neware toolbar, right) shows
+   "connect CYCLING folder" / "allow CYCLING" / "CYCLING change". Barcodes entered before connecting reload once the folder is connected.
+3. Raman Fitting (raman.js, new):
+   - Drop or choose several two-column .txt spectra; rename labels by double-click; waterfall plot, click a curve to select it.
+   - Despike (2nd difference > 40 x MAD, +-2 points, linear interpolation), Background (arPLS, lambda presets 1e5 / 1e6 / 1e7, then zero = median of 700-730),
+     both applied to all spectra. Shift: pick a point on each curve, it is moved to the target value (default 594).
+   - Typed axis limits on both plots; one shared x range.
+   - "Open fitting": choose the range by dragging, double-click adds a peak (pure Gaussian by default), drag to move, scroll for width,
+     edit centre / FWHM / L % in the table; the fit updates live. Rule presets LE / C / C120 / C410 / CA (alignment of A1g to 594, window 315-730, x5 weight in 575-610, multi-start).
+   - Peak table with height, area, area %, R2; area ratios with any peaks in numerator and denominator.
+   - Undo / Redo / step list; auto-save in the browser and, after "save to folder...", to CellPeek_Raman_project.json in that folder.
+   - Export results: <name>_corrected.txt (two columns, as the source), _background.txt, _fit.txt, _peaks.txt, peaks_summary.txt.
+
+Not done yet (from 20261112_Raman去背景与拟合方法_软件实现说明.md): mapping formats, glass-fringe removal, Li2C2 S/N detection and location maps,
+rule K (joint fit of several spectra), calibration formulas, publication-style switch, regression test against the Python results.

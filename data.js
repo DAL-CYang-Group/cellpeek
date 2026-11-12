@@ -63,7 +63,7 @@ const local = {
   },
   match: (bc, n) => n.toLowerCase().endsWith('.txt') && new RegExp('(?<!\\d)' + bc + '(?!\\d)').test(n),
   async find(bc) {
-    if (!this.root) throw new Error('no data folder connected');
+    if (!this.root) throw new Error('no data folder: click "connect CYCLING folder" (top right)');
     let hits = [];
     for (const force of [false, true]) {
       for (const d of this.roots) for (const [n, k] of await this.list(d, force)) if (k === 'file' && this.match(bc, n)) hits.push([d, n]);

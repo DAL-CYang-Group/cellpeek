@@ -138,43 +138,43 @@ function srcLabel() {
   const el = $('#src'), S = NQP.source; el.hidden = false;
   if (S.mode === 'server') { el.textContent = 'Data: office server'; return; }
   const sup = USER && USER.super;
-  el.innerHTML = (S.mode === 'remote' ? `Data: remote · ${esc(S.base.replace(/^https?:\/\//, ''))}` : `Data: ${esc(NQP.folder.name() || '—')}`)
-    + ` <a href="#" id="srcchg">change</a>`;
+  if (S.mode === 'remote') {
+    el.innerHTML = `Data: remote · ${esc(S.base.replace(/^https?:\/\//, ''))} <a href="#" id="srcchg">change</a>`;
+  } else if (NQP.folder.name()) {
+    el.innerHTML = `Data: ${esc(NQP.folder.name())} <a href="#" id="srcchg">change</a>`;
+  } else if (FOLDER_STATE === 'prompt') {              // folder remembered, browser wants permission again
+    el.innerHTML = `Data: <a href="#" id="srcallow" class="srcneed" title="Allow this page to read ${esc(SAVED_NAME)} again">allow ${esc(SAVED_NAME)}</a> · <a href="#" id="srcchg">change</a>`;
+  } else {                                             // nothing connected yet
+    el.innerHTML = `Data: <a href="#" id="srcchg" class="srcneed" title="Choose the CYCLING folder on the data drive, e.g. Z:\\databdayse\\DATA\\CYCLING (read-only, remembered on this computer)">connect CYCLING folder</a>`;
+  }
   $('#srcchg').onclick = ev => { ev.preventDefault(); sup ? chooseSource() : pickFolder(true); };
+  if ($('#srcallow')) $('#srcallow').onclick = async ev => { ev.preventDefault();
+    if (await NQP.folder.reconnect()) { FOLDER_STATE = 'granted'; srcLabel(); folderReady(); NQP.log('folder', {name: NQP.folder.name(), how: 'reconnect'}); } };
 }
+let FOLDER_STATE = 'none', SAVED_NAME = '';
+function folderReady() { status('Data folder: ' + NQP.folder.roots().join(' + ')); if (NQP.retryCells) NQP.retryCells(); }
 async function dataStep() {
   const r = LS.get('nqp_src');
   if (USER && USER.super && r === 'remote' && LS.get('nqp_remote')) { useRemote(LS.get('nqp_remote')); return openPage(); }
   if (!NQP.folder.supported()) return gate(`${TITLE}<p>Please open this page in <b>Google Chrome</b> or <b>Microsoft Edge</b>.
     Other browsers cannot read a folder on your computer.</p>${USER && USER.super ? '<button id="g_rm">Use remote server instead</button>' : ''}`)
     , USER && USER.super && ($('#g_rm').onclick = chooseSource);
-  const st = await NQP.folder.state();
-  if (st === 'granted') { await NQP.folder.useSaved(); srcLabel(); return openPage(); }
-  if (st === 'prompt') {
-    const c = gate(`${TITLE}<p>Allow this page to read your data folder <b>${esc((await NQP.folder.saved()).name)}</b> again.</p>
-      <p class="gmuted">Tip: in the browser prompt choose <i>Allow on every visit</i> to skip this step next time.</p>
-      <button class="primary" id="g_ok">Allow</button> <button id="g_new">Choose another folder</button>`);
-    $('#g_ok', c).onclick = async () => { if (await NQP.folder.reconnect()) { srcLabel(); openPage(); NQP.log('folder', {name: NQP.folder.name(), how: 'reconnect'}); } };
-    $('#g_new', c).onclick = () => pickFolder(false);
-    return;
-  }
-  firstFolder();
+  // the page opens right away; the data folder is connected from "Data: ..." in the header
+  FOLDER_STATE = await NQP.folder.state();
+  if (FOLDER_STATE === 'granted') await NQP.folder.useSaved();
+  else if (FOLDER_STATE === 'prompt') SAVED_NAME = (await NQP.folder.saved()).name;
+  NQP.source.mode = 'local'; srcLabel(); openPage();
+  if (FOLDER_STATE !== 'granted') status(FOLDER_STATE === 'prompt'
+    ? `Click "allow ${SAVED_NAME}" next to Data (top right) to read the data folder again.`
+    : 'To start, click "connect CYCLING folder" next to Data (top right).');
 }
-function firstFolder(msg) {
-  const c = gate(`${TITLE}<p>Choose the <b>CYCLING</b> folder on the data drive, for example<br><code>Z:\\databdayse\\DATA\\CYCLING</code></p>
-    <p class="gmuted">The page only reads files (read-only); it is remembered on this computer.</p>
-    <div class="gerr">${esc(msg || '')}</div><button class="primary" id="g_pick">Choose folder…</button>
-    ${USER && USER.super ? '<button id="g_rm">Remote server…</button>' : ''}`);
-  $('#g_pick', c).onclick = () => pickFolder(false);
-  if ($('#g_rm', c)) $('#g_rm', c).onclick = chooseSource;
-}
-async function pickFolder(fromHeader) {
+async function pickFolder() {
   try {
-    const r = await NQP.folder.pick();
-    if (!r.roots.some(n => /NEWARE/i.test(n))) status('Note: no NEWARE folder found inside ' + r.name + '; searching this folder only.');
+    const r = await NQP.folder.pick(); FOLDER_STATE = 'granted';
     NQP.source.mode = 'local'; LS.set('nqp_src', 'local'); srcLabel(); openPage(); NQP.log('folder', {name: r.name, roots: r.roots});
-    if (fromHeader) status('Data folder: ' + r.roots.join(' + '));
-  } catch (e) { if (e.name !== 'AbortError') fromHeader ? status('Folder: ' + e.message) : firstFolder(e.message); }
+    folderReady();
+    if (!r.roots.some(n => /NEWARE/i.test(n))) status('Note: no NEWARE folder found inside ' + r.name + '; searching this folder only.');
+  } catch (e) { if (e.name !== 'AbortError') status('Folder: ' + e.message); }
 }
 function useRemote(r) { Object.assign(NQP.source, {mode: 'remote', base: r.base, token: r.token}); srcLabel(); }
 
@@ -187,7 +187,7 @@ function chooseSource() {
 function initRemoteDialog() {
   const d = $('#rmt');
   $('#rm_x').onclick = () => d.close();
-  $('#rm_local').onclick = () => { d.close(); LS.set('nqp_src', 'local'); NQP.source.mode = 'local'; NQP.source.base = ''; dataStep(); };
+  $('#rm_local').onclick = () => { d.close(); NQP.source.base = ''; pickFolder(); };
   $('#rm_go').onclick = async () => {
     const r = {base: $('#rm_base').value.trim().replace(/\/+$/, ''), token: $('#rm_tok').value.trim()};
     $('#rm_msg').textContent = 'Testing…';

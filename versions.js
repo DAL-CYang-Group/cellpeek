@@ -1,6 +1,7 @@
 // Version history, newest first. The first entry is the running version.
 // Rule: the last number (0.1.x) may be bumped for small fixes; changing the first two numbers needs Chongyin's approval.
 window.NQP_VERSIONS = [
+  {v: '0.2.1', date: '2026-11-12', notes: ['Tabs: Neware Cycling and Raman Fitting', 'Raman Fitting: drop .txt spectra, despike, arPLS background + zero, shift by picking a point, live multi-peak fitting with NMC rule presets, area ratios, undo / redo, auto-save, export', 'New users go straight to the page; connect the CYCLING folder from "Data:" at the top right']},
   {v: '0.1.4', date: '2026-11-08', notes: ['Approve / Deny links ask for a click before they take effect (mail scanners were opening them automatically)']},
   {v: '0.1.3', date: '2026-11-08', notes: ['Email links (verify, approve) open in CellPeek, so they work with several Google accounts signed in']},
   {v: '0.1.2', date: '2026-11-08', notes: ['ΔV plots: absolute, minus a reference cycle, or divided by a reference cycle', 'Normalized plots: last-cycle % shown at the right', 'Records IP address and last-used time']},

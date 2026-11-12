@@ -9,7 +9,18 @@
   :root { --bg:#f6f7f9; --card:#fff; --line:#dde1e6; --text:#1d2329; --muted:#6b7480; --accent:#1f5fbf; }
   * { box-sizing: border-box; }
   body { margin:0; font: 14px/1.45 -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
-  header { position:sticky; top:0; z-index:10; background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  #top { position:sticky; top:0; z-index:10; background:var(--card); border-bottom:1px solid var(--line); }
+  header { padding:0 16px; display:flex; flex-wrap:wrap; gap:10px; align-items:stretch; border-bottom:1px solid var(--line); }
+  header > * { align-self:center; }
+  header h1 { padding:10px 0; }
+  #tabs { display:flex; gap:2px; align-self:stretch; margin-left:8px; }
+  #tabs button { border:0; border-bottom:3px solid transparent; border-radius:0; background:none; padding:10px 14px 7px; color:var(--muted); font-weight:600; }
+  #tabs button:hover { color:var(--text); background:#f3f5f8; }
+  #tabs button.on { color:var(--accent); border-bottom-color:var(--accent); }
+  .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:8px 16px; background:#fafbfc; }
+  .toolbar .sp { margin-left:auto; }
+  .soon { margin:40px auto; max-width:560px; background:var(--card); border:1px dashed var(--line); border-radius:10px; padding:24px 28px; color:var(--muted); }
+  .soon h2 { margin:0 0 6px; color:var(--text); font-size:17px; }
   header h1 { font-size:15px; margin:0 8px 0 0; white-space:nowrap; flex:none; }
   #hdrsp { margin-left:auto; }
   input[type=text], input[type=number], select { font:inherit; padding:4px 6px; border:1px solid var(--line); border-radius:5px; background:#fff; }
@@ -85,6 +96,7 @@
   #verlist ul { margin:2px 0 0; padding-left:18px; }
   #src { font-size:12.5px; color:var(--muted); }
   #src a, #banner a { color:var(--accent); }
+  #src a.srcneed { font-weight:600; color:#fff; background:var(--accent); padding:2px 8px; border-radius:4px; text-decoration:none; }
   #fbbtn { font-size:12.5px; padding:3px 10px; }
   #who { display:flex; align-items:center; gap:6px; font-size:12.5px; background:#eef3fb; border:1px solid #cfdcf0; border-radius:14px; padding:2px 6px 2px 10px; }
   #who a { color:var(--muted); text-decoration:none; font-size:13px; padding:0 3px; }
@@ -108,31 +120,107 @@
   dialog.small .sb p { margin:0; }
   dialog.small textarea { font:inherit; padding:6px; border:1px solid var(--line); border-radius:5px; resize:vertical; }
   dialog.small .ef { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 14px; border-top:1px solid var(--line); }
+
+  /* ---------- Raman tab ---------- */
+  .rdrop { display:inline-flex; align-items:center; gap:12px; border:2px dashed #9fb4d6; border-radius:9px; padding:9px 22px 9px 16px; min-width:330px; color:var(--accent); background:#fff; cursor:pointer; font-size:13.5px; line-height:1.35; }
+  .rdrop .ic { font-size:26px; line-height:1; }
+  .rdrop:hover, .rdrop.over { background:#eef3fb; border-color:var(--accent); }
+  .hbtns { display:inline-flex; gap:6px; align-items:center; }
+  button.big { font-weight:700; padding:6px 16px; border:1.5px solid #e08a00; color:#b36b00; background:#fff7e8; }
+  button.big:not(:disabled):hover { background:#e08a00; color:#fff; }
+  #r_save { font-size:12.5px; } #r_save a { color:var(--accent); }
+  #r_save a.srcneed { font-weight:600; color:#fff; background:var(--accent); padding:2px 8px; border-radius:4px; text-decoration:none; }
+  #r_msg { padding:6px 16px 0; font-size:13px; color:var(--muted); min-height:6px; }
+  .rgrid { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:12px; padding:8px 16px 40px; align-items:start; }
+  @media (max-width: 1100px) { .rgrid { grid-template-columns:minmax(0, 1fr); } }
+  .rgrid .mod, .rgrid .mod input, .rgrid .mod select, .rgrid .mod button { font-size:13px; }
+  .rgrid .mod .bar { min-height:32px; flex-wrap:nowrap; } .rgrid .mod .bar .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:60px; }
+  .rgrid .mod .bar .opts { flex-wrap:nowrap; white-space:nowrap; } .rgrid .mod .bar button { white-space:nowrap; flex:none; }
+  .rgrid .mod .bar .primary, .rgrid .mod .bar #ft_close { margin-left:auto; } .rgrid .mod .bar .expbtn { margin-left:0; font-size:11.5px; }
+  .rgrid .mod .bar #ft_open[hidden] + .expbtn { margin-left:auto; }
+  .rgrid label { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .rgrid .mod canvas { display:block; touch-action:none; }
+  .rgrid .mod .lim, .rgrid .mod .axauto { font-size:11px; }
+  .hintrow { margin-top:6px; padding:4px 10px; font-size:12.5px; color:var(--muted); border:1px solid transparent; border-radius:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hintrow.hint { background:#fff8e1; border-color:#f0d9a0; color:var(--text); }
+  #wf_list { margin-top:8px; border-top:1px solid var(--line); padding-top:6px; max-height:190px; overflow:auto; }
+  #wf_list .empty { color:var(--muted); padding:8px 2px; }
+  .srow { display:flex; align-items:center; gap:6px; padding:3px 6px; border-radius:6px; cursor:pointer; }
+  .srow:hover { background:#f3f5f8; } .srow.on { background:#eef3fb; font-weight:600; }
+  .srow input[type=color] { width:20px; height:20px; border:none; padding:0; background:none; cursor:pointer; }
+  .srow .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .srow .ed { color:var(--muted); cursor:pointer; visibility:hidden; padding:0 2px; } .srow:hover .ed { visibility:visible; } .srow .ed:hover { color:var(--accent); }
+  .srow input.nmedit { flex:1; min-width:0; padding:1px 4px; }
+  .srow .meta { color:var(--muted); font-size:11.5px; font-weight:400; white-space:nowrap; } .srow .x { color:var(--muted); padding:0 3px; }
+  .pre { margin-top:8px; border-top:1px solid var(--line); padding-top:8px; display:flex; flex-direction:column; gap:6px; }
+  .pre .ph { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .prow { display:flex; flex-wrap:nowrap; align-items:center; gap:10px; min-height:30px; white-space:nowrap; overflow:hidden; }
+  .rgrid .mod .prow button.tg { width:108px; flex:none; font-weight:600; padding:5px 0; }
+  .rgrid .mod .prow button.tg.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .rgrid .mod .prow button.tg.pick { background:#fff3d6; border-color:#e0a800; }
+  .prow a { color:var(--accent); }
+  .side { margin-top:8px; border-top:1px solid var(--line); padding-top:8px; }
+  .r2 { padding:0 2px 6px; } .r2 b { font-weight:700; }
+  table.pk { border-collapse:collapse; width:100%; }
+  table.pk th { text-align:left; font-weight:600; color:var(--muted); font-size:12px; padding:3px 4px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  table.pk td { padding:3px 4px; border-bottom:1px solid #f0f2f4; white-space:nowrap; vertical-align:middle; } table.pk tr.on td { background:#eef3fb; }
+  table.pk input[type=number] { width:76px; padding:3px 5px; } table.pk input.nm { width:110px; padding:3px 5px; }
+  table.pk input[data-f=eta] { width:60px; }
+  table.pk input.lk { border-color:#e0c46c; background:#fffbea; }
+  table.pk td.ro { font-variant-numeric:tabular-nums; } table.pk .sw { display:inline-block; width:10px; height:10px; border-radius:2px; }
+  table.pk .ef { display:inline; } table.pk .ef input { margin:0 0 0 4px; vertical-align:-2px; }
+  table.pk .x { cursor:pointer; color:var(--muted); }
+  .ratios { margin-top:10px; } .ratios .rh { display:flex; align-items:center; gap:8px; font-weight:600; color:var(--muted); }
+  .ratios .rh button { padding:1px 8px; }
+  .ratio { border:1px solid var(--line); border-radius:7px; padding:6px 8px; margin-top:6px; }
+  .ratio .rv { display:flex; align-items:baseline; gap:8px; } .ratio .rv b { margin-left:auto; } .ratio .x { cursor:pointer; color:var(--muted); }
+  .frac { display:flex; flex-direction:column; gap:3px; margin-top:4px; } .frac .nr { border-bottom:1.5px solid var(--text); padding-bottom:3px; }
+  .frac > div { display:flex; flex-wrap:wrap; gap:4px; }
+  .rgrid .mod .pill { font-size:11.5px; padding:1px 8px; border-radius:10px; border:1px solid var(--c); color:var(--c); background:#fff; }
+  .rgrid .mod .pill.on { background:var(--c); color:#fff; }
+  .hrow { display:flex; gap:8px; padding:3px 6px; border-radius:5px; cursor:pointer; } .hrow:hover { background:#f3f5f8; }
+  .hrow.on { background:#eef3fb; font-weight:600; } .hrow.fut { color:var(--muted); }
 </style>
 </head>
 <body>
+<div id="top">
 <header>
-  <h1>CellPeek - DAL <span style="font-weight:400;color:#6b7480;font-size:12px"><a href="#" id="ver" title="Version history">beta 0.1.4</a> · by <a href="https://www.yang-dal.com/" target="_blank" rel="noopener">Chongyin Yang</a></span></h1>
-  <input id="bc" type="text" placeholder="e.g. 1169067, 1169068; 1169158  then Enter">
-  <button id="add">Add</button>
-  <button id="plot" class="primary">Plot</button>
+  <h1>CellPeek - DAL <span style="font-weight:400;color:#6b7480;font-size:12px"><a href="#" id="ver" title="Version history">beta 0.2.1</a> · by <a href="https://www.yang-dal.com/" target="_blank" rel="noopener">Chongyin Yang</a></span></h1>
+  <nav id="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="neware">Neware Cycling</button>
+    <button type="button" role="tab" data-tab="raman">Raman Fitting</button>
+  </nav>
   <span id="hdrsp"></span>
-  <span id="src" hidden></span>
   <button id="fbbtn" hidden title="Report a bug or send a suggestion">Feedback</button>
   <span id="who" hidden></span>
 </header>
+<div class="toolbar" data-pane="neware">
+  <input id="bc" type="text" placeholder="e.g. 1169067, 1169068; 1169158  then Enter">
+  <button id="add">Add</button>
+  <button id="plot" class="primary">Plot</button>
+  <span class="sp"></span>
+  <span id="src" hidden></span>
+</div>
+<div class="toolbar" data-pane="raman" hidden>
+</div>
+</div>
 <div id="banner" hidden></div>
 <div id="gate" hidden><div id="gatecard"></div></div>
+<section data-pane="neware">
 <div id="chips"></div>
 <div id="msgrow"><span id="status"></span><span id="bcerr"></span></div>
 <div id="modebar"></div>
 <main id="mods"></main>
+</section>
+<section data-pane="raman" hidden>
+</section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.1.4"></script>
-<script src="versions.js?v=0.1.4"></script>
-<script src="data.js?v=0.1.4"></script>
-<script src="auth.js?v=0.1.4"></script>
+<script src="config.js?v=0.2.1"></script>
+<script src="versions.js?v=0.2.1"></script>
+<script src="data.js?v=0.2.1"></script>
+<script src="auth.js?v=0.2.1"></script>
+<script src="raman.js?v=0.2.1"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -170,6 +258,24 @@
   </div>
   <div class="ef">File name <input type="text" id="expname"><button type="button" class="primary" id="expsave">Save as…</button></div>
 </dialog>
+<script>
+// ---------------- tabs ----------------
+(function () {
+  const tabs = document.querySelectorAll('#tabs [data-tab]');
+  function show(t) {
+    if (![...tabs].some(b => b.dataset.tab === t)) t = 'neware';
+    tabs.forEach(b => { b.classList.toggle('on', b.dataset.tab === t); b.setAttribute('aria-selected', b.dataset.tab === t); });
+    document.querySelectorAll('[data-pane]').forEach(p => p.hidden = p.dataset.pane !== t);
+    try { localStorage.setItem('nqp_tab', t); } catch {}
+    if (location.hash !== '#' + t) history.replaceState(null, '', '#' + t);
+    window.dispatchEvent(new Event('resize'));          // plots drawn while hidden get their width back
+    window.dispatchEvent(new Event('cellpeek:tab'));
+  }
+  tabs.forEach(b => b.onclick = () => show(b.dataset.tab));
+  let saved = ''; try { saved = localStorage.getItem('nqp_tab') || ''; } catch {}
+  show(location.hash.slice(1) || saved);
+})();
+</script>
 <script>
 "use strict";
 // api(path) comes from data.js (local folder, remote server or server.py)
@@ -289,6 +395,7 @@ async function loadCell(c, file) {
     if (/not found/i.test(e.message)) { cells.splice(cells.indexOf(c), 1); bad.add(`${c.bc} (not found)`); showBad(); } }
   renderChips(); markDirty();
 }
+NQP.retryCells = () => cells.filter(c => c.err).forEach(c => loadCell(c));   // after the data folder is connected
 function renderChips() {
   const box = $('#chips'); box.innerHTML = '';
   for (const c of cells) {
