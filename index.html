@@ -25,7 +25,7 @@
   #hdrsp { margin-left:auto; }
   input[type=text], input[type=number], select { font:inherit; padding:4px 6px; border:1px solid var(--line); border-radius:5px; background:#fff; }
   input[type=number] { width:64px; }
-  #bc { width:340px; }
+  #bc { width:400px; }
   button { font:inherit; padding:5px 12px; border:1px solid var(--line); border-radius:5px; background:#fff; cursor:pointer; }
   button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
   button:disabled { opacity:.5; cursor:default; }
@@ -44,6 +44,30 @@
   .chip.err { border-color:#d33; color:#b00; }
   .chip select { font-size:11.5px; max-width:240px; padding:1px 3px; }
   .chip .meta { color:var(--muted); font-size:11.5px; }
+  .chip .nm { cursor:pointer; font-size:12.5px; word-break:break-all; }
+  .chip .nm:hover { color:var(--accent); text-decoration:underline; }
+  .chip .nfile { color:var(--accent); font-size:11px; }
+  #cellinfo { position:absolute; z-index:40; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 24px rgba(0,0,0,.15); padding:10px 12px; font-size:12.5px; max-width:min(640px, 94vw); }
+  #cellinfo table { border-collapse:collapse; }
+  #cellinfo td { padding:2px 8px 2px 0; vertical-align:top; }
+  #cellinfo td:first-child { color:var(--muted); white-space:nowrap; }
+  #cellinfo td.fn { word-break:break-all; font-weight:600; }
+  #cellinfo select { font-size:12px; max-width:100%; }
+  #findbar { padding-top:0; }
+  #kw { width:400px; }
+  #idx { font-size:12px; color:var(--muted); }
+  #idx a { color:var(--accent); }
+  #kwbox { margin:6px 16px 0; background:var(--card); border:1px solid var(--line); border-radius:8px; }
+  #kwbox .kh { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--line); font-size:13px; }
+  #kwbox .kh .sp { margin-left:auto; }
+  #kwbox .kh button { padding:2px 10px; font-size:12.5px; }
+  #kwlist { max-height:280px; overflow-y:auto; padding:4px 0; font-size:12.5px; }
+  #kwlist label { display:flex; gap:8px; align-items:baseline; padding:2px 10px; cursor:pointer; }
+  #kwlist label:hover { background:#f3f5f8; }
+  #kwlist label.added { color:var(--muted); }
+  #kwlist .nm { word-break:break-all; }
+  #kwlist .dir { color:var(--muted); font-size:11px; margin-left:auto; white-space:nowrap; padding-left:8px; }
+  #kwlist mark { background:#fff2a8; padding:0; }
   main { padding:10px 16px 40px; display:grid; gap:12px; }
   .mod { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 12px 10px; }
   .mod .bar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
@@ -195,11 +219,17 @@
   <span id="who" hidden></span>
 </header>
 <div class="toolbar" data-pane="neware">
-  <input id="bc" type="text" placeholder="e.g. 1169067, 1169068; 1169158  then Enter">
+  <input id="bc" type="text" placeholder="e.g. 1169067, 1169068  or a range 1172140-1172160, then Enter" title="Separate barcodes with spaces, commas or ;  ·  a range: 1172140-1172160 (or 1172140-160), spaces allowed">
   <button id="add">Add</button>
   <button id="plot" class="primary">Plot</button>
   <span class="sp"></span>
   <span id="src" hidden></span>
+</div>
+<div class="toolbar" data-pane="neware" id="findbar">
+  <input id="kw" type="text" placeholder="Search file names: name CYY, temperature 40C, voltage 42V …" title="Type any words from the file name, e.g. the name abbreviation (CYY), temperature (40C), voltage (42V), date (261021). All words must appear, in any order; upper/lower case ignored.">
+  <label title="Also search the other NEWARE... folders (slow the first time they are read)"><input type="checkbox" id="kwall"> all NEWARE folders</label>
+  <span class="sp"></span>
+  <span id="idx"></span>
 </div>
 <div class="toolbar" data-pane="raman" hidden>
 </div>
@@ -207,6 +237,12 @@
 <div id="banner" hidden></div>
 <div id="gate" hidden><div id="gatecard"></div></div>
 <section data-pane="neware">
+<div id="kwbox" hidden>
+  <div class="kh"><span id="kwn"></span><span class="sp"></span>
+    <button type="button" id="kwselall">Select all</button><button type="button" id="kwnone">Clear</button>
+    <button type="button" id="kwadd" class="primary">Add selected</button><button type="button" id="kwclose" title="Close">✕</button></div>
+  <div id="kwlist"></div>
+</div>
 <div id="chips"></div>
 <div id="msgrow"><span id="status"></span><span id="bcerr"></span></div>
 <div id="modebar"></div>
@@ -216,11 +252,11 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.2.1"></script>
-<script src="versions.js?v=0.2.1"></script>
-<script src="data.js?v=0.2.1"></script>
-<script src="auth.js?v=0.2.1"></script>
-<script src="raman.js?v=0.2.1"></script>
+<script src="config.js?v=0.2.2"></script>
+<script src="versions.js?v=0.2.2"></script>
+<script src="data.js?v=0.2.2"></script>
+<script src="auth.js?v=0.2.2"></script>
+<script src="raman.js?v=0.2.2"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -372,46 +408,158 @@ function showBad() {
   const e = $('#bcerr'); e.innerHTML = bad.size ? 'Barcode errors: ' + [...bad].join(', ') + ' <a href="#" style="margin-left:8px">clear</a>' : '';
   if (bad.size) $('a', e).onclick = (ev) => { ev.preventDefault(); bad.clear(); showBad(); };
 }
-async function addCells(text) {
-  const toks = splitTokens(text);
-  const bcs = [];
-  for (const t of toks) {
-    if (!/^\d{4,9}$/.test(t)) { bad.add(`${t} (invalid)`); continue; }
-    if (!cells.some(c => c.bc === t) && !bcs.includes(t)) bcs.push(t);
+// barcode list: "1169067, 1169068; 1169158" and ranges "1172140-1172160", "1172140 - 1172160", "1172140~160"
+function parseBarcodes(text) {
+  const t = String(text || '').replace(/(\d)\s*[-–—~～至到]+\s*(\d)/g, '$1-$2');
+  const out = [], bad = [], ranged = new Set();
+  for (const tok of splitTokens(t)) {
+    let m;
+    if (/^\d{4,9}$/.test(tok)) out.push(tok);
+    else if ((m = tok.match(/^(\d{4,9})-(\d{1,9})$/))) {
+      let a = m[1], b = m[2];
+      if (b.length < a.length) b = a.slice(0, a.length - b.length) + b;      // 1172140-160 -> 1172160
+      let x = +a, y = +b; if (y < x) [x, y] = [y, x];
+      if (y - x > 300) { bad.push(`${tok} (range too long, max 300)`); continue; }
+      for (let k = x; k <= y; k++) { const v = String(k).padStart(a.length, '0'); out.push(v); ranged.add(v); }
+    } else bad.push(`${tok} (invalid)`);
   }
+  return {bcs: [...new Set(out)], bad, ranged};
+}
+async function addCells(text) {
+  const p = parseBarcodes(text);
+  p.bad.forEach(b => bad.add(b));
+  const bcs = p.bcs.filter(t => !cells.some(c => c.bc === t));
   showBad();
   for (const bc of bcs) {
-    const c = {bc, color: nextColor(), file: null, candidates: [], data: null, err: null, loading: true};
-    cells.push(c); renderChips(); loadCell(c);
+    const c = {bc, color: nextColor(), file: null, candidates: [], data: null, err: null, loading: true, ranged: p.ranged.has(bc)};
+    cells.push(c); loadCell(c);
   }
+  renderChips();
 }
 async function loadCell(c, file) {
   c.loading = true; c.err = null; renderChips(); const t0 = performance.now();
   try {
-    const j = await api(`/api/cell?bc=${c.bc}` + (file ? `&file=${encodeURIComponent(file)}` : ''));
+    const j = await api(`/api/cell?bc=${c.bc}` + (file ? `&file=${encodeURIComponent(file)}` : '') + (c.ranged ? '&deep=0' : ''));
     Object.assign(c, {data: j, file: j.file, candidates: j.candidates, loading: false});
     status(`${c.bc}: ${j.cycles.length} cycles, ${((performance.now()-t0)/1000).toFixed(2)} s` + (j.parse_s != null ? ` (parsed in ${j.parse_s} s)` : ' (cached)'));
   } catch (e) { c.err = e.message; c.loading = false; status(`${c.bc}: ${e.message}`);
-    if (/not found/i.test(e.message)) { cells.splice(cells.indexOf(c), 1); bad.add(`${c.bc} (not found)`); showBad(); } }
+    if (/not found/i.test(e.message)) { cells.splice(cells.indexOf(c), 1); bad.add(`${c.bc} (not found)`); showBad(); renderKw(); } }
   renderChips(); markDirty();
 }
 NQP.retryCells = () => cells.filter(c => c.err).forEach(c => loadCell(c));   // after the data folder is connected
+const esc = (t) => String(t ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+const stem = (f) => String(f || '').replace(/\.txt$/i, '');
+function channelOf(f) {          // Neware file names end with device-unit-channel(-test ID), e.g. ...-13-3-5-799 or ..._20_10_6
+  const n = stem(f); let m = n.match(/(\d+)-(\d+)-(\d+)(?:-(\d+))?$/) || n.match(/(\d+)_(\d+)_(\d+)(?:_(\d+))?$/);
+  return m ? {ch: `${m[1]}-${m[2]}-${m[3]}`, test: m[4] || ''} : null;
+}
+const fmtTime = (ms) => { if (!ms) return ''; const d = new Date(ms), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+const ago = (ms) => { const s = (Date.now() - ms) / 1000; return s < 90 ? 'just now' : s < 5400 ? Math.round(s / 60) + ' min ago' : s < 129600 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago'; };
 function renderChips() {
   const box = $('#chips'); box.innerHTML = '';
   for (const c of cells) {
     const d = document.createElement('div'); d.className = 'chip' + (c.err ? ' err' : '');
-    const n = c.data ? c.data.cycles.length : 0;
-    d.innerHTML = `<input type="color" value="${c.color}"><b>${c.bc}</b>
-      <span class="meta">${c.loading ? 'loading…' : c.err ? c.err : `${n} cycles · ${c.data.start || ''}`}</span>
-      ${c.candidates.length > 1 ? `<select title="Several files for this barcode">${c.candidates.map(f => `<option ${f===c.file?'selected':''}>${f}</option>`).join('')}</select>` : ''}
+    d.innerHTML = `<input type="color" value="${c.color}"><span class="nm" title="Click for details">${esc(c.file ? stem(c.file) : c.bc)}</span>
+      ${c.loading ? '<span class="meta">loading…</span>' : c.err ? `<span class="meta">${esc(c.err)}</span>` : ''}
+      ${c.candidates.length > 1 ? `<span class="nfile" title="${c.candidates.length} files have this barcode; click the name to switch">(${c.candidates.length} files)</span>` : ''}
       <span class="x" title="Remove">✕</span>`;
-    d.title = c.file || '';
     $('input[type=color]', d).addEventListener('input', e => { c.color = e.target.value; markDirty(); });
-    const sel = $('select', d); if (sel) sel.addEventListener('change', e => loadCell(c, e.target.value));
-    $('.x', d).addEventListener('click', () => { cells.splice(cells.indexOf(c), 1); renderChips(); markDirty(); });
+    $('.nm', d).addEventListener('click', ev => { ev.stopPropagation(); showCellInfo(c, ev.currentTarget); });
+    $('.x', d).addEventListener('click', () => { cells.splice(cells.indexOf(c), 1); hideCellInfo(); renderChips(); markDirty(); renderKw(); });
     box.appendChild(d);
   }
 }
+function hideCellInfo() { const p = $('#cellinfo'); if (p) p.remove(); }
+function showCellInfo(c, anchor) {
+  hideCellInfo();
+  const j = c.data || {}, ch = channelOf(c.file), p = document.createElement('div'); p.id = 'cellinfo';
+  const row = (k, v) => v ? `<tr><td>${k}</td><td>${v}</td></tr>` : '';
+  p.innerHTML = `<table>
+    <tr><td>File</td><td class="fn">${esc(c.file || '(not loaded)')}</td></tr>
+    ${row('Barcode', esc(c.bc))}
+    ${row('Folder', esc(j.dir))}
+    ${row('Channel', ch ? esc(ch.ch) + ' <span style="color:var(--muted)">(device-unit-channel, from the file name)</span>' + (ch.test ? ` · test ID ${esc(ch.test)}` : '') : '')}
+    ${row('Last updated', j.mtime ? `${fmtTime(j.mtime)} <span style="color:var(--muted)">(${ago(j.mtime)})</span>` : '')}
+    ${row('Started', esc(j.start))}
+    ${row('Cycles', j.cycles ? String(j.cycles.length) : '')}
+    ${row('Size', j.size ? (j.size / 1048576).toFixed(1) + ' MB' : '')}
+    ${c.candidates.length > 1 ? row('Other files', `<select>${c.candidates.map(f => `<option ${f === c.file ? 'selected' : ''} value="${esc(f)}">${esc(f)}</option>`).join('')}</select>`) : ''}
+  </table>`;
+  document.body.appendChild(p);
+  const r = anchor.getBoundingClientRect();
+  p.style.left = Math.max(8, Math.min(r.left + scrollX, scrollX + innerWidth - p.offsetWidth - 8)) + 'px';
+  p.style.top = (r.bottom + scrollY + 6) + 'px';
+  const sel = $('select', p); if (sel) sel.onchange = e => { c.userFile = e.target.value; hideCellInfo(); loadCell(c, e.target.value); };
+  p.addEventListener('click', ev => ev.stopPropagation());
+}
+document.addEventListener('click', hideCellInfo);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCellInfo(); });
+
+// ---------------- file-name search ----------------
+const KW = {checked: new Set(), hits: []};
+const barcodeOf = (f) => { const m = f.match(/(?<!\d)\d{7}(?!\d)/) || f.match(/(?<!\d)\d{4,9}(?!\d)/); return m ? m[0] : null; };
+function renderKw() {
+  const q = $('#kw').value.trim(), box = $('#kwbox');
+  if (!q) { box.hidden = true; return; }
+  if (!NQP.index) { box.hidden = false; $('#kwn').textContent = 'Search works with the local data folder only'; $('#kwlist').innerHTML = ''; return; }
+  const words = splitTokens(q.toLowerCase());
+  const hits = NQP.index.files().filter(f => { const n = f.name.toLowerCase(); return words.every(w => n.includes(w)); });
+  hits.sort((a, b) => (barcodeOf(b.name) || '').localeCompare(barcodeOf(a.name) || '') || a.name.localeCompare(b.name));
+  KW.hits = hits; box.hidden = false;
+  const st = NQP.index.status(), MAX = 1000;
+  $('#kwn').textContent = `${hits.length} file${hits.length === 1 ? '' : 's'} match` + (hits.length > MAX ? ` (showing the first ${MAX})` : '') +
+    (st.scanning ? ' · still reading the file list…' : '') + (KW.checked.size ? ` · ${KW.checked.size} selected` : '');
+  const re = new RegExp('(' + words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'gi');
+  const added = new Set(cells.map(c => c.file).filter(Boolean));
+  $('#kwlist').innerHTML = hits.slice(0, MAX).map((f, i) => { const on = added.has(f.name);
+    return `<label class="${on ? 'added' : ''}"><input type="checkbox" data-i="${i}" ${on ? 'checked disabled' : KW.checked.has(f.name) ? 'checked' : ''}>
+      <span class="nm">${esc(stem(f.name)).replace(re, '<mark>$1</mark>')}</span><span class="dir">${on ? 'added · ' : ''}${esc(f.dir)}</span></label>`; }).join('');
+  $('#kwadd').textContent = `Add selected${KW.checked.size ? ' (' + KW.checked.size + ')' : ''}`;
+}
+$('#kwlist').addEventListener('change', e => { const f = KW.hits[+e.target.dataset.i]; if (!f) return;
+  e.target.checked ? KW.checked.add(f.name) : KW.checked.delete(f.name); renderKw(); });
+$('#kwselall').onclick = () => { const added = new Set(cells.map(c => c.file)); KW.hits.slice(0, 1000).forEach(f => { if (!added.has(f.name)) KW.checked.add(f.name); }); renderKw(); };
+$('#kwnone').onclick = () => { KW.checked.clear(); renderKw(); };
+$('#kwclose').onclick = () => { $('#kw').value = ''; KW.checked.clear(); renderKw(); };
+$('#kwadd').onclick = () => {
+  const skip = [];
+  for (const name of KW.checked) {
+    const bc = barcodeOf(name); if (!bc) { skip.push(name); continue; }
+    const other = cells.find(c => c.bc === bc);
+    if (other) { if (other.file !== name) skip.push(`${bc} (already shown with another file)`); continue; }
+    const c = {bc, color: nextColor(), file: name, userFile: name, candidates: [], data: null, err: null, loading: true};
+    cells.push(c); loadCell(c, name);
+  }
+  KW.checked.clear(); renderChips(); renderKw();
+  if (skip.length) status('Not added: ' + skip.join(', '));
+};
+let kwT; $('#kw').addEventListener('input', () => { clearTimeout(kwT); kwT = setTimeout(renderKw, 150); });
+$('#kw').addEventListener('keydown', e => { if (e.key === 'Escape') $('#kwclose').click(); });
+$('#kwall').onchange = e => { if (e.target.checked && NQP.index) NQP.index.readAll(); renderKw(); };
+
+// file-list status (top right) + keep loaded cells up to date when the list changes
+function renderIdx() {
+  const el = $('#idx'); if (!NQP.index || NQP.source.mode !== 'local') { el.textContent = ''; return; }
+  const st = NQP.index.status(); if (!st.connected) { el.textContent = ''; return; }
+  el.innerHTML = st.scanning ? `Reading file list… ${st.n.toLocaleString()} files`
+    : `File list: ${st.n.toLocaleString()} files${st.t ? ', ' + ago(st.t) : ''} <a href="#" id="idxre" title="Read the data folder again (takes about a minute for big folders)">refresh</a>`;
+  const a = $('#idxre'); if (a) a.onclick = ev => { ev.preventDefault(); NQP.folder.refresh(0); };
+}
+let idxT, wasScanning = false;
+window.addEventListener('nqp-index', () => {
+  clearTimeout(idxT); idxT = setTimeout(() => {
+    renderIdx(); if ($('#kw').value.trim()) renderKw();
+    const st = NQP.index.status();
+    if (wasScanning && !st.scanning) for (const c of cells) {       // a read just finished: pick up new / bigger files for loaded cells
+      if (!c.data || c.userFile || c.loading) continue;
+      const cand = NQP.index.candidates(c.bc);
+      if (cand.some(n => !c.candidates.includes(n))) loadCell(c);
+    }
+    wasScanning = st.scanning;
+  }, 200);
+});
+setInterval(renderIdx, 60000);
 
 // ---------------- signatures (redraw only changed modules) ----------------
 function sigOf(m) {

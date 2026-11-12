@@ -1,6 +1,7 @@
 // Version history, newest first. The first entry is the running version.
 // Rule: the last number (0.1.x) may be bumped for small fixes; changing the first two numbers needs Chongyin's approval.
 window.NQP_VERSIONS = [
+  {v: '0.2.2', date: '2026-11-12', notes: ['Faster file lookup: the folder file list is read once in the background when the page opens and reused; a new barcode is found the moment its name is read, and all barcodes added together share one read', 'Barcode ranges: 1172140-1172160 (or 1172140-160), spaces allowed', 'Search file names by keywords: all matching files in a scrollable list with check boxes, add the selected ones', 'Cells show the full file name; click it for folder, channel, last update time, cycles and other files with the same barcode']},
   {v: '0.2.1', date: '2026-11-12', notes: ['Tabs: Neware Cycling and Raman Fitting', 'Raman Fitting: drop .txt spectra, despike, arPLS background + zero, shift by picking a point, live multi-peak fitting with NMC rule presets, area ratios, undo / redo, auto-save, export', 'New users go straight to the page; connect the CYCLING folder from "Data:" at the top right']},
   {v: '0.1.4', date: '2026-11-08', notes: ['Approve / Deny links ask for a click before they take effect (mail scanners were opening them automatically)']},
   {v: '0.1.3', date: '2026-11-08', notes: ['Email links (verify, approve) open in CellPeek, so they work with several Google accounts signed in']},

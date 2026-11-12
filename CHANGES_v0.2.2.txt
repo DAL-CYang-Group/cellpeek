@@ -1,0 +1,26 @@
+CellPeek beta 0.2.2 (2026-11-12) — front end only, no change to Code.gs
+
+Upload these 3 files to github.com/DAL-CYang-Group/cellpeek (Add file > Upload files; they replace the existing ones):
+  index.html, data.js, versions.js
+Backend: set "latest version" in the config sheet to 0.2.2.
+
+Why loading was slow
+  The usage log shows parsing is fast (0.2-1 s per file). The time goes into reading the file list of
+  CC_NEWAREB12A (about 11,000 files, ~64 s every time in Chrome over the network drive). In 0.2.1 that full
+  read was repeated for every barcode that was not in the saved list, i.e. every newly exported cell.
+
+Changes
+1. Faster lookup (data.js)
+   - When the page opens, the folder file list is read once in the background; lookups use the saved list instantly.
+   - A barcode not in the saved list waits for that same running read and is loaded the moment its file name
+     comes past, instead of starting a new full read. All barcodes added together share one read.
+   - When a read finishes, cells that now have another (bigger) file with the same barcode are updated.
+   - Top right: "File list: 11,000 files, 3 min ago  refresh" (or "Reading file list... n files").
+   - The list is read again when the tab comes back after more than 10 minutes.
+2. Barcode ranges: 1172140-1172160, 1172140 - 1172160, 1172140~1172160 or 1172140-160 (max 300).
+   Barcodes from a range that are not found are listed as not found and do not trigger the slow search of the other NEWARE folders.
+3. File-name search (second toolbar row): all words must appear in the name, any order, case ignored.
+   Results in a scrollable list with check boxes, newest barcodes first, words highlighted;
+   Select all / Clear / Add selected. "all NEWARE folders" also searches the other NEWARE... folders (slow the first time).
+4. Cell chips show the full file name (no date). Click the name: file, barcode, folder, channel (device-unit-channel and
+   test ID, read from the end of the file name), last updated, start, cycles, size, and a switch to other files with the same barcode.
