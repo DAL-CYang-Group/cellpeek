@@ -140,9 +140,8 @@ function fitCfg(d, sh, cfg) {
   return {cfg, o, cost: ss, err: 100 * Math.sqrt(ss / n), bic: N2 * Math.log(ss / N2 + 1e-300) + k * Math.log(N2)};
 }
 // opt = {n: 'auto'|2|3, tail: 'auto'|'on'|'off'}
-// All measured points are used, the inductive ones at the high-frequency end too (an inductor is in the model then): the same
-// way as the group's RelaxIS fits (L + R + 3 × R‖CPE + Warburg), so the numbers can be compared with them.
-// (Version 2 left the inductive points out: smaller fit error, but R_HFI and R_contact moved away from the RelaxIS values.)
+// All measured points are used, the inductive ones at the high-frequency end too (an inductor is in the model then).
+// (Version 2 left the inductive points out: smaller fit error, but R_HFI and R_contact changed with it.)
 const FITV = 3;                                  // version of the fitting method (stored fits of an older version are redone)
 function fitSpectrum(d, opt = {}) {
   const nSkip = 0;
