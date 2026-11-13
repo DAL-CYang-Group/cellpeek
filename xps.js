@@ -172,7 +172,7 @@ function background(y, kind, i0, i1, navg) {
 }
 // background is two steps: method 'on' + applied:false = background only shown (dashed) on the original spectrum, type and window can be chosen;
 // applied:true = baseline subtracted (projects saved before this have no flag and count as subtracted)
-const bgShown = sp => sp.bg.method === 'on', bgDone = sp => sp.bg.method === 'on' && sp.bg.applied !== false;
+const bgShown = sp => sp.bg.method === 'on', bgDone = sp => false;      // XPS: the background is used for the fit but never taken out of the plots
 const ZERO_W = 30;                              // width of the noise segment used for the zero level (not used in the XPS tab)
 const zeroOn = sp => !!sp.zero && (sp.zero.on || sp.zero.mode === undefined);   // projects saved before the Zero row always applied their window
 const PCACHE = new Map();
@@ -180,15 +180,17 @@ function proc(sp) {
   const key = sp.id + JSON.stringify([sp.despike, sp.bg, sp.zero, sp.shift, sp.shiftOn]);
   if (PCACHE.has(key)) return PCACHE.get(key);
   const d = DATA[sp.id]; if (!d) return null;
-  const ds = sp.despike.on ? despike(d.y, +sp.despike.thr || 40) : {y: Float64Array.from(d.y), n: 0};
+  const ds = {y: Float64Array.from(d.y), n: 0};                                  // XPS: no despike
   const b = sp.bg, ys = Array.from(ds.y);
   const sh0 = sp.shiftOn ? +sp.shift || 0 : 0;                                  // the typed window is in corrected (shifted) energies
   let i0 = 0, i1 = ys.length - 1;
   if (b.a != null && b.b != null && b.a !== '' && b.b !== '' && isFinite(+b.a) && isFinite(+b.b) && +b.a !== +b.b) { const lo = Math.min(+b.a, +b.b) - sh0, hi = Math.max(+b.a, +b.b) - sh0;
     while (i0 < i1 && d.x[i0] < lo) i0++; while (i1 > i0 && d.x[i1] > hi) i1--; }
   const base = b.method === 'on' ? background(ys, b.kind || 'shirley', i0, i1, +b.navg || 1) : ys.map(() => 0);
-  const done = bgDone(sp);
-  let y = done ? ys.map((v, i) => v - base[i]) : ys.slice();
+  // The background stays in the plots: the spectra are shown as measured, with the background as a dashed line and the peaks standing on it.
+  // The peaks are fitted to y = data − background.
+  const done = false;
+  let y = ys.map((v, i) => v - base[i]);
   const sh = sp.shiftOn ? +sp.shift || 0 : 0, x = d.x.map(v => v + sh);
   // zero level (after the background is removed): mean of a noise segment is set to 0.
   //   auto   — the first and the last ZERO_W units of the spectrum are both tried; the one with the lower mean is used
@@ -330,8 +332,10 @@ function drawPlot(cv, H, o) {
   const labels = [];
   for (const s of o.series) {
     const n = s.x.length; if (!n) continue;
-    if (s.fill) { g.fillStyle = s.fill; g.beginPath(); g.moveTo(px(s.x[0]), py(s.base || 0));
-      for (let i = 0; i < n; i++) g.lineTo(px(s.x[i]), py(s.y[i])); g.lineTo(px(s.x[n - 1]), py(s.base || 0)); g.closePath(); g.fill(); }
+    if (s.fill) { const B = Array.isArray(s.base) ? s.base : null; g.fillStyle = s.fill; g.beginPath(); g.moveTo(px(s.x[0]), py(B ? B[0] : s.base || 0));
+      for (let i = 0; i < n; i++) g.lineTo(px(s.x[i]), py(s.y[i]));
+      if (B) for (let i = n - 1; i >= 0; i--) g.lineTo(px(s.x[i]), py(B[i])); else g.lineTo(px(s.x[n - 1]), py(s.base || 0));
+      g.closePath(); g.fill(); }
     if (s.points) { g.strokeStyle = s.color; g.lineWidth = 1; const rr = s.points;
       for (let i = 0; i < n; i++) { g.beginPath(); g.arc(px(s.x[i]), py(s.y[i]), rr, 0, 7); g.stroke(); } }
     if (s.width !== 0 && !s.points) { g.strokeStyle = s.color; g.lineWidth = s.width || 1.5; g.setLineDash(s.dash || []);
@@ -415,7 +419,7 @@ function build() {
       <div class="mod rwf">
         <div class="rsplit" id="xr_split" title="Drag to make the plots narrower or wider · double-click: half and half"></div>
         <div class="bar"><span class="t">Spectra</span>
-          <span class="opts">Show <select id="xwf_view"><option value="corrected">corrected</option><option value="raw">raw + background</option></select>
+          <span class="opts">
           <label><input type="checkbox" id="xwf_norm"> normalize</label> <label>offset <input type="number" id="xwf_off" step="0.1" style="width:56px"></label>
           <label title="Draw the fitted peaks and their sum on every curve"><input type="checkbox" id="xwf_fits"> fits</label></span>
           <button type="button" class="primary" id="xft_open">Open fitting ▸</button>
@@ -476,7 +480,6 @@ function build() {
     g.addEventListener('dblclick', e => { e.stopPropagation(); last = 0; keep(0); setW(0); });
   }
   $('#xr_export').onclick = exportAll;
-  $('#xwf_view').onchange = e => { S.wf.view = e.target.value; commit('Waterfall: show ' + e.target.value); };
   $('#xwf_norm').onchange = e => { S.wf.norm = e.target.checked; commit(e.target.checked ? 'Waterfall: normalize' : 'Waterfall: no normalize'); };
   $('#xwf_off').onchange = e => { S.wf.offset = +e.target.value || 0; commit('Waterfall offset ' + S.wf.offset); };
   $('#xwf_fits').onchange = e => { S.wf.fits = e.target.checked; commit(e.target.checked ? 'Spectra: show fits' : 'Spectra: hide fits'); };
@@ -505,9 +508,9 @@ function render() {
   $('#xr_redo').title = HPOS < HIST.length - 1 ? 'Redo: ' + HIST[HPOS + 1].label + ' (Ctrl+Y)' : 'Nothing to redo';
   $('#xr_hn').textContent = Math.max(0, HPOS);
   $('#xr_fit').hidden = !FITOPEN; $('#xft_open').hidden = FITOPEN;
-  $('#xwf_hint').innerHTML = PICK ? `<b>Click one point on each curve</b> — it is moved to ${+S.shiftTarget} eV (snaps to the nearest maximum). Esc to finish.` : 'Click a curve to select it · double-click to reset the axes';
+  $('#xwf_hint').innerHTML = 'Click a curve to select it · double-click to reset the axes';
   $('#xwf_hint').classList.toggle('hint', PICK);
-  $('#xwf_view').value = S.wf.view; $('#xwf_norm').checked = S.wf.norm; $('#xwf_off').value = S.wf.offset; $('#xwf_fits').checked = S.wf.fits !== false;
+  $('#xwf_norm').checked = S.wf.norm; $('#xwf_off').value = S.wf.offset; $('#xwf_fits').checked = S.wf.fits !== false;
   renderList(); renderPre(); drawWf(); renderFitBar(); drawFit(); renderSide();
 }
 function renderList() {
@@ -516,7 +519,7 @@ function renderList() {
   box.innerHTML = S.spectra.map(s => `<div class="srow${s.id === S.sel ? ' on' : ''}${inRegion(s) ? '' : ' other'}" data-id="${s.id}"${inRegion(s) ? '' : ' title="Another energy region: click to show the spectra of that region"'}>
     <input type="checkbox" ${s.show ? 'checked' : ''} title="Show in waterfall"><input type="color" value="${s.color}">
     <span class="nm" title="file: ${esc(s.file || s.name)}">${esc(s.name)}</span>
-    <span class="meta">${s.fit.peaks.length ? s.fit.peaks.length + ' peaks' : ''}${bgDone(s) ? ' · bg removed' : bgShown(s) ? ' · bg shown' : ''}${s.despike.on ? ' · despiked' : ''}</span>
+    <span class="meta">${s.fit.peaks.length ? s.fit.peaks.length + ' peaks' : ''}${bgShown(s) ? ' · ' + (s.bg.kind || 'shirley') + ' bg' : ''}</span>
     <span class="x" title="Remove">✕</span></div>`).join('');
   box.querySelectorAll('.srow').forEach(r => { const s = S.spectra.find(q => q.id === r.dataset.id);
     r.onclick = e => { if (e.target.tagName === 'INPUT' || e.target.classList.contains('x')) return; select(s.id); };
@@ -526,42 +529,50 @@ function renderList() {
   });
 }
 function select(id) { if (S.sel === id) return; S.sel = id; ACTIVE = null; commit('Select ' + (cur() || {}).name); }
-function renderPre() {                          // despike and background(+zero) act on all spectra; shift is set curve by curve
+// Charge correction, fixed rule: the strongest C 1s peak of a file goes to C_REF, and every region of the same file gets the same shift.
+const C_REF = 284.8;
+const isC1s = sp => { const d = DATA[sp.id]; if (!d) return false; const a = d.x[0], b = d.x[d.x.length - 1];
+  return /^C\s*1s/i.test(sp.name) || (a <= 283 && b >= 287 && b - a <= 60); };          // by name, or a narrow scan around 285 eV
+function c1sPeak(sp) {                          // energy of the highest point (as measured), refined with a parabola through its neighbours
+  const d = DATA[sp.id]; let k = -1; for (let i = 0; i < d.x.length; i++) if (d.x[i] >= 278 && d.x[i] <= 295 && (k < 0 || d.y[i] > d.y[k])) k = i;
+  if (k < 0) return null; if (k === 0 || k === d.x.length - 1) return d.x[k];
+  const y0 = d.y[k - 1], y1 = d.y[k], y2 = d.y[k + 1], den = y0 - 2 * y1 + y2;
+  return d.x[k] + (den < 0 ? 0.5 * (y0 - y2) / den : 0) * (d.x[k + 1] - d.x[k]);
+}
+function chargeCorrect(on) {
+  const files = new Map(); for (const q of S.spectra) { const f = q.file || q.id; if (!files.has(f)) files.set(f, []); files.get(f).push(q); }
+  let done = 0, none = 0; const notes = [];
+  for (const [f, list] of files) {
+    const c = on ? list.find(isC1s) : null, pk = c ? c1sPeak(c) : null, sh = pk == null ? 0 : +(C_REF - pk).toFixed(2);
+    if (on && pk == null) none++; else if (on) { done++; notes.push(`${sh > 0 ? '+' : '−'}${Math.abs(sh).toFixed(2)}`); }
+    for (const q of list) { q.shift = sh; q.shiftOn = sh !== 0; autoRange(q); }
+  }
+  PCACHE.clear(); for (const q of S.spectra) if (q.fit.peaks.length) runFit(q, {iters: 60});
+  commit(on ? `Charge correction: C 1s to ${C_REF} eV (${notes.join(', ') || 'no C 1s found'} eV)` : 'Charge correction off');
+  msg(on ? (done ? `Charge correction: ${done} file${done > 1 ? 's' : ''} shifted (${notes.join(', ')} eV)` : 'No C 1s spectrum found') + (none ? ` · ${none} file${none > 1 ? 's' : ''} without a C 1s spectrum, not shifted` : '') : 'Charge correction taken off');
+}
+function renderPre() {                          // the background acts on the spectra of the region; the shift is set curve by curve
   const sp = cur(), box = $('#xwf_pre');
   if (!sp) { box.innerHTML = ''; return; }
-  const b = sp.bg, bgOn = bgShown(sp), bgRem = bgDone(sp);
-  const nsp = regionSpectra().reduce((n, q) => n + (q.despike.on ? proc(q).spikes : 0), 0);
+  const b = sp.bg, bgOn = bgShown(sp), chOn = S.spectra.some(q => q.shiftOn && q.shift);
   box.innerHTML = `
-    <div class="prow"><button type="button" id="xds_on" class="tg${sp.despike.on ? ' on' : ''}" title="Remove cosmic-ray spikes from all spectra">Despike</button>
-      <label>2nd difference &gt; <input type="number" id="xds_thr" value="${sp.despike.thr}" min="3" step="1" style="width:60px"> × MAD</label>
-      <span class="gmuted">${sp.despike.on ? nsp + ' spike' + (nsp === 1 ? '' : 's') + ' removed' : ''}</span></div>
-    <div class="prow"><button type="button" id="xbg_on" class="tg${bgOn ? ' on' : ''}" title="Step 1: show the background (dashed) on the original spectra and choose its type. Click again to switch the background off.">Background</button>
-      ${bgOn ? `<select id="xbg_pre" ${bgRem ? 'disabled' : ''}><option value="shirley">Shirley</option><option value="linear">linear</option></select>
-      <label title="Each end level is the mean of this many points">ends: mean of <input type="number" id="xbg_l" value="${+b.navg || 1}" min="1" max="50" step="1" style="width:50px" ${bgRem ? 'disabled' : ''}> pts</label>
-      <label title="Leave both empty to use the whole spectrum">from <input type="number" id="xbg_a" value="${b.a ?? ''}" step="0.1" style="width:66px" ${bgRem ? 'disabled' : ''}> to <input type="number" id="xbg_b" value="${b.b ?? ''}" step="0.1" style="width:66px" ${bgRem ? 'disabled' : ''}> eV</label>
-      <button type="button" id="xbg_go" class="${bgRem ? '' : 'primary'}" title="${bgRem ? 'Back to step 1: original spectra with the dashed background' : 'Step 2: subtract the dashed background from all spectra'}">${bgRem ? 'Show background again' : 'Remove background'}</button>` : '<span class="gmuted">shows the background first, then removes it</span>'}</div>
-    <div class="prow"><button type="button" id="xsh_pick" class="tg${PICK ? ' pick' : S.spectra.some(q => q.shiftOn && q.shift) ? ' on' : ''}" title="Charge correction: click, then click one point on each curve in the plot">${PICK ? 'Charge: picking…' : 'Charge corr.'}</button>
-      <label>click a point on each curve → move it to <input type="number" id="xsh_t" value="${+S.shiftTarget}" step="0.1" style="width:66px"> eV</label>
-      <label title="Type the shift of the selected spectrum directly">or shift <input type="number" id="xsh_v" value="${sp.shiftOn ? +(+sp.shift).toFixed(2) : 0}" step="0.05" style="width:66px"> eV</label>
-      <span class="gmuted">${sp.shiftOn && sp.shift ? `<span style="color:${sp.color}">■</span> <a href="#" id="xsh_clr">reset</a>` : ''}</span></div>`;
+    <div class="prow"><button type="button" id="xbg_on" class="tg${bgOn ? ' on' : ''}" title="Background under the peaks, drawn as a dashed line. It stays in the plots; the peaks are fitted to the data minus this background.">Background</button>
+      ${bgOn ? `<select id="xbg_pre"><option value="shirley">Shirley</option><option value="linear">linear</option></select>
+      <label title="Each end level is the mean of this many points">ends: mean of <input type="number" id="xbg_l" value="${+b.navg || 1}" min="1" max="50" step="1" style="width:50px"> pts</label>
+      <label title="Leave both empty to use the whole spectrum">from <input type="number" id="xbg_a" value="${b.a ?? ''}" step="0.1" style="width:66px"> to <input type="number" id="xbg_b" value="${b.b ?? ''}" step="0.1" style="width:66px"> eV</label>` : '<span class="gmuted">dashed line under the peaks; it stays in the plot</span>'}</div>
+    <div class="prow"><button type="button" id="xsh_pick" class="tg${chOn ? ' on' : ''}" title="Charge correction: in every file the strongest C 1s peak is moved to ${C_REF} eV, and all regions of that file are shifted by the same amount. Click again to take the shift off.">Charge corr.</button>
+      <span>C 1s → ${C_REF} eV</span>
+      <span class="gmuted">${sp.shiftOn && sp.shift ? `this spectrum: ${sp.shift > 0 ? '+' : '−'}${Math.abs(+sp.shift).toFixed(2)} eV` : chOn ? 'this spectrum: no C 1s in its file, not shifted' : 'not applied'}</span></div>`;
   if (bgOn) $('#xbg_pre').value = b.kind || 'shirley';
   const all = (fn, lab) => e => { const R = regionSpectra(); for (const q of R) fn(q, e.target); PCACHE.clear(); for (const q of R) if (q.fit.peaks.length) runFit(q, {iters: 60}); commit(lab(e.target)); };   // despike and background act on the spectra of this region
   const live = fn => e => { for (const q of regionSpectra()) fn(q, e.target); PCACHE.clear(); drawWf(); drawFit(); renderSide(); };
-  const dsNew = !sp.despike.on;
-  $('#xds_on').onclick = all(q => q.despike.on = dsNew, () => 'Despike ' + (dsNew ? 'on' : 'off'));
-  $('#xds_thr').oninput = live((q, t) => q.despike.thr = +t.value);
-  $('#xds_thr').onchange = all((q, t) => q.despike.thr = +t.value, t => `Despike ${t.value}×MAD`);
-  $('#xbg_on').onclick = all(q => { q.bg.method = bgOn ? 'none' : 'on'; q.bg.applied = false; }, () => 'Background ' + (bgOn ? 'off' : 'shown'));
+  $('#xbg_on').onclick = all(q => { q.bg.method = bgOn ? 'none' : 'on'; q.bg.applied = false; }, () => 'Background ' + (bgOn ? 'off' : 'on'));
   if (bgOn) {
     $('#xbg_pre').onchange = all((q, t) => { q.bg.kind = t.value; }, t => `Background ${t.value}`);
     $('#xbg_l').onchange = all((q, t) => q.bg.navg = Math.max(1, Math.round(+t.value) || 1), t => `Background ends: mean of ${t.value} points`);
     for (const k of ['a', 'b']) $('#xbg_' + k).onchange = all((q, t) => q.bg[k] = t.value === '' ? null : +t.value, () => `Background window ${$('#xbg_a').value || '…'}–${$('#xbg_b').value || '…'} eV`);
-    $('#xbg_go').onclick = all(q => { q.bg.applied = !bgRem; }, () => bgRem ? 'Background shown again' : 'Background removed');
   }
-  $('#xsh_t').onchange = e => { S.shiftTarget = +e.target.value || 0; commit('Charge reference ' + S.shiftTarget + ' eV'); };
-  $('#xsh_v').onchange = e => { const v = +e.target.value || 0; sp.shift = v; sp.shiftOn = v !== 0; autoRange(sp); PCACHE.clear(); runFit(sp, {iters: 60}); commit(`${sp.name}: shift ${v} eV`); };
-  $('#xsh_pick').onclick = () => { PICK = !PICK; render(); };
-  if ($('#xsh_clr')) $('#xsh_clr').onclick = e => { e.preventDefault(); sp.shift = 0; sp.shiftOn = false; autoRange(sp); PCACHE.clear(); runFit(sp, {iters: 60}); commit(`${sp.name}: shift reset`); };
+  $('#xsh_pick').onclick = () => chargeCorrect(!chOn);
 }
 
 // ---------------- waterfall ----------------
@@ -569,7 +580,7 @@ let WF = null, wfDrag = null;
 function wfCurves() {
   const shown = S.spectra.filter(s => s.show && DATA[s.id] && inRegion(s)), N = shown.length, out = [];
   shown.forEach((s, k) => {
-    const r = proc(s), raw = S.wf.view === 'raw' || (bgShown(s) && !bgDone(s)), y = raw ? r.ds : r.y;
+    const r = proc(s), raw = true, y = r.ds;
     let sc = 1; if (S.wf.norm) { let mx = 0, mn = Infinity; for (const v of y) { if (v > mx) mx = v; if (v < mn) mn = v; } sc = 1 / ((mx - (raw ? mn : 0)) || 1); }
     const sub = raw && S.wf.norm ? Math.min(...y) : 0, off = (N - 1 - k) * S.wf.offset * (S.wf.norm ? 1 : 1);
     out.push({s, x: r.x, y: y.map(v => (v - sub) * sc + off), base: raw && s.bg.method !== 'none' ? r.base.map(v => (v - sub) * sc + off) : null, off, sc, sub, raw, r});
@@ -584,18 +595,18 @@ function drawWf() {
   const series = [];
   for (const c of C) { const on = c.s.id === S.sel && !EXPORTING;
     const lab = S.wf.lab, lx = lab ? xr[1] - lab.fx * (xr[1] - xr[0]) : null;       // every label sits at the same place relative to its own curve
-    series.push({x: c.x, y: c.y, color: c.s.color, width: on ? 2.4 : 1.1, label: c.s.name, id: c.s.id, bold: on,
+    series.push({x: c.x, y: c.y, color: c.s.color, points: on ? 2.4 : 1.7, label: c.s.name, id: c.s.id, bold: on,      // measured points, as in the fitting plot
       labelX: lx, labelY: lab ? c.y[nearestIdx(c.x, lx)] : c.y[0], labelDy: lab ? lab.dy : null});
     if (c.base) series.push({x: c.x, y: c.base, color: c.s.color, width: 1, dash: [5, 4]});
     // the fit of this spectrum, drawn on its curve: each peak filled, their sum as a thin dark line
     const F = c.s.fit;
     if (S.wf.fits !== false && F.range && F.peaks.length) {
       sync(F.peaks);
-      const xs = [], bs = []; for (let i = 0; i < c.x.length; i++) if (c.x[i] >= F.range[0] && c.x[i] <= F.range[1]) { xs.push(c.x[i]); bs.push(c.raw && bgShown(c.s) ? c.r.base[i] : 0); }
-      const tr = v => (v - c.sub) * c.sc + c.off, flat = !(c.raw && bgShown(c.s));        // flat: peaks stand on the curve's zero line; otherwise on the dashed background
+      const xs = [], bs = []; for (let i = 0; i < c.x.length; i++) if (c.x[i] >= F.range[0] && c.x[i] <= F.range[1]) { xs.push(c.x[i]); bs.push(c.r.base[i]); }
+      const tr = v => (v - c.sub) * c.sc + c.off, bt = bs.map(tr);                          // the peaks stand on the background
       if (xs.length > 1) {
         F.peaks.forEach((p, k) => { const col = p.color || PEAK_COL[k % PEAK_COL.length];
-          series.push({x: xs, y: xs.map((x, i) => tr(pv(x, p) + bs[i])), color: col, width: flat ? 0.8 : 1, fill: flat ? hexA(col, .25) : null, base: flat ? tr(0) : 0}); });
+          series.push({x: xs, y: xs.map((x, i) => tr(pv(x, p) + bs[i])), color: col, width: 0.8, fill: hexA(col, .25), base: bt}); });
         series.push({x: xs, y: xs.map((x, i) => tr(F.peaks.reduce((a, p) => a + pv(x, p), 0) + bs[i])), color: '#111', width: 1.1});
       }
     } }
@@ -661,18 +672,20 @@ function drawFit() {
   const cv = $('#xft_cv'), sp = cur(); if (!cv || !FITOPEN || $('section[data-pane=xps]').hidden) return;
   if (!sp || !DATA[sp.id]) { const xr = xRange(), yr = fill(LIMS.fit, [0, 1]); FT = drawPlot(cv, 380, {xr, yr, series: [], xlabel: 'Binding energy (eV)', ylabel: 'Intensity (a.u.)'}); axisUI(cv, FT, 'fit', xr, yr); return; }
   const r = proc(sp), xr = xRange(), fr = sp.fit.range, P = sp.fit.peaks;
-  const vi = [], vy = []; for (let i = 0; i < r.x.length; i++) if (r.x[i] >= xr[0] && r.x[i] <= xr[1]) { vi.push(r.x[i]); vy.push(r.y[i]); }
+  const vi = [], vy = [], vb = []; for (let i = 0; i < r.x.length; i++) if (r.x[i] >= xr[0] && r.x[i] <= xr[1]) { vi.push(r.x[i]); vy.push(r.ds[i]); vb.push(r.base[i]); }
   const series = [], marks = [];
   if (fr && P.length) {
     sync(P);
     const xs = []; const st = (fr[1] - fr[0]) / 600; for (let x = fr[0]; x <= fr[1] + st / 2; x += st) xs.push(x);
-    P.forEach((p, k) => { const col = p.color || PEAK_COL[k % PEAK_COL.length], y = xs.map(x => pv(x, p));
-      series.push({x: xs, y, color: col, width: 1, fill: hexA(col, p.id === ACTIVE && !EXPORTING ? .42 : .28)});
-      marks.push({x: p.c, y: p.h, color: col, text: p.c.toFixed(1), on: p.id === ACTIVE && !EXPORTING}); });
+    const bx = xs.map(x => baseAt(r, x));                                              // the peaks stand on the background
+    P.forEach((p, k) => { const col = p.color || PEAK_COL[k % PEAK_COL.length], y = xs.map((x, i) => pv(x, p) + bx[i]);
+      series.push({x: xs, y, color: col, width: 1, fill: hexA(col, p.id === ACTIVE && !EXPORTING ? .42 : .28), base: bx});
+      marks.push({x: p.c, y: p.h + baseAt(r, p.c), color: col, text: p.c.toFixed(1), on: p.id === ACTIVE && !EXPORTING}); });
   }
+  if (bgShown(sp)) series.push({x: vi, y: vb, color: '#555', width: 1, dash: [5, 4]});
   series.push({x: vi, y: vy, color: '#8a9099', points: 2.6});
-  if (fr && P.length) { const xs = series[0].x; series.push({x: xs, y: xs.map(x => P.reduce((s, p) => s + pv(x, p), 0)), color: '#111', width: 1.6}); }
-  let yr = extent([vy, ...series.filter(s => s.fill).map(s => s.y)], 0.05); yr = fill(LIMS.fit, [Math.min(yr[0], 0 - (yr[1] - yr[0]) * .03), yr[1] + (yr[1] - yr[0]) * .06]);
+  if (fr && P.length) { const xs = series[0].x; series.push({x: xs, y: xs.map(x => P.reduce((s, p) => s + pv(x, p), 0) + baseAt(r, x)), color: '#111', width: 1.6}); }
+  let yr = extent([vy, ...series.filter(s => s.fill).map(s => s.y)], 0.05); yr = fill(LIMS.fit, [yr[0], yr[1] + (yr[1] - yr[0]) * .06]);
   const bands = [];
   if (fr && !EXPORTING) bands.push({a: fr[0], b: fr[1], color: mode() === 'range' ? 'rgba(255,190,40,.18)' : 'rgba(255,200,60,.09)', edge: '#e0a800'});
   FT = drawPlot(cv, 380, {xr, yr, series, marks, bands, xlabel: 'Binding energy (eV)', ylabel: 'Intensity (a.u.)',
@@ -681,9 +694,10 @@ function drawFit() {
   cv.style.cursor = mode() === 'range' ? 'col-resize' : mode() === 'fit' ? 'crosshair' : 'default';
 }
 const hexA = (h, a) => { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+function baseAt(r, x) { const i = nearestIdx(r.x, x); return r.base[i] || 0; }      // background under energy x
 function hitPeak(e) {
   const sp = cur(); if (!sp || !FT || mode() !== 'fit') return null; let best = null, bd = 14;
-  for (const p of sp.fit.peaks) { const d = Math.hypot(FT.px(p.c) - e.offsetX, FT.py(p.h) - e.offsetY); if (d < bd) { bd = d; best = p; } }
+  const r0 = proc(sp); for (const p of sp.fit.peaks) { const d = Math.hypot(FT.px(p.c) - e.offsetX, FT.py(p.h + baseAt(r0, p.c)) - e.offsetY); if (d < bd) { bd = d; best = p; } }
   return best;
 }
 function liveFit(fix) {                        // throttled quick refit of the other peaks while dragging / scrolling
@@ -705,7 +719,8 @@ function fitEvents() {
     const sp0 = cur(), fr0 = sp0 && sp0.fit.range;
     if (!ftDrag) { cv.style.cursor = hitPeak(e) ? 'grab' : mode() === 'fit' && fr0 && FT && fr0.some(v => Math.abs(FT.px(v) - e.offsetX) < 6) ? 'ew-resize' : mode() === 'range' ? 'col-resize' : mode() === 'fit' ? 'crosshair' : 'default'; return; }
     if (ftDrag.kind === 'peak') { const p = ftDrag.p, m = mainOf(sp0.fit.peaks, p);          // dragging the partner of a doublet moves its main peak
-      if (m !== p) { m.c = FT.ix(e.offsetX) - (+p.link.d || 0); m.h = Math.max(0, FT.iy(e.offsetY)) / (+p.link.r || 1); } else { p.c = FT.ix(e.offsetX); p.h = Math.max(0, FT.iy(e.offsetY)); }
+      const xv = FT.ix(e.offsetX), hv = Math.max(0, FT.iy(e.offsetY) - baseAt(proc(sp0), xv));              // height above the background
+      if (m !== p) { m.c = xv - (+p.link.d || 0); m.h = hv / (+p.link.r || 1); } else { p.c = xv; p.h = hv; }
       cv.style.cursor = 'grabbing'; liveFit(m.id); return; }
     if (ftDrag.kind === 'edge') { const v = FT.ix(e.offsetX), o = fr0[1 - ftDrag.i]; sp0.fit.auto = false; fr0[ftDrag.i] = ftDrag.i ? Math.max(v, o + 0.5) : Math.min(v, o - 0.5);
       $('#xft_a').value = fr0[0].toFixed(2); $('#xft_b').value = fr0[1].toFixed(2); liveFit(null); return; }
@@ -758,7 +773,7 @@ function renderSide() {
   box.innerHTML = `
     <div class="r2">R² = <b>${st ? st.r2.toFixed(4) : '—'}</b>${sp.fit.weight ? ` <span class="gmuted">· residuals weighted ×${sp.fit.weight.w} in ${sp.fit.weight.a}–${sp.fit.weight.b} eV</span>` : ''}</div>
     <table class="pk"><thead><tr><th></th><th>Peak</th><th title="Peak position">Center</th><th title="Full width at half maximum">FWHM</th>
-      <th title="Lorentzian fraction: 0 = pure Gaussian, 100 = pure Lorentzian; tick = let the fit change it">L % · fit</th><th>Height</th><th>Area</th><th>%</th><th title="Signal-to-noise ratio: peak height ÷ noise. Noise = standard deviation of (corrected − fit) in the fit range">S/N</th><th title="Spin-orbit doublet: Δ = splitting in eV, × = area ratio partner ÷ main">Doublet</th><th title="Lock position and width">🔒</th><th></th></tr></thead>
+      <th title="Lorentzian fraction: 0 = pure Gaussian, 100 = pure Lorentzian; tick = let the fit change it">L % · fit</th><th>Height</th><th>Area</th><th>%</th><th title="Signal-to-noise ratio: peak height ÷ noise. Noise = standard deviation of (intensity − background − fit) in the fit range">S/N</th><th title="Spin-orbit doublet: Δ = splitting in eV, × = area ratio partner ÷ main">Doublet</th><th title="Lock position and width">🔒</th><th></th></tr></thead>
     <tbody>${P.map((p, k) => `<tr data-id="${p.id}" class="${p.id === ACTIVE ? 'on' : ''}">
       <td><span class="sw" style="background:${p.color}"></span></td>
       <td><input data-f="name" value="${esc(p.name)}" class="nm"></td>
@@ -859,22 +874,19 @@ function exportFiles() {
   const files = [], sum = [['spectrum', 'peak', 'center (eV)', 'fwhm (eV)', 'L_percent', 'height', 'area', 'area_percent', 'SNR', 'doublet', 'R2', 'range_from (eV)', 'range_to (eV)'].join('\t')];
   for (const sp of S.spectra) {
     const r = proc(sp); if (!r) continue; const base = sp.name.replace(/[\\/:*?"<>|]/g, '_');
-    files.push([base + '_corrected.txt', 'Binding energy (eV)\tintensity (corrected)\n' + r.x.map((x, i) => num(x) + '\t' + num(r.y[i])).join('\n') + '\n']);
-    if (bgShown(sp) || sp.despike.on)
-      files.push([base + '_background.txt', 'Binding energy (eV)\traw\tdespiked\tbackground\tcorrected\n' + r.x.map((x, i) => [x, r.raw[i], r.ds[i], r.base[i], r.y[i]].map(num).join('\t')).join('\n') + '\n']);
+    files.push([base + '_spectrum.txt', 'Binding energy (eV)\tintensity (c/s)\tbackground\tintensity minus background\n' + r.x.map((x, i) => [x, r.ds[i], r.base[i], r.y[i]].map(num).join('\t')).join('\n') + '\n']);
     if (sp.fit.range && sp.fit.peaks.length) {
       const P = sp.fit.peaks; sync(P); const {x, y} = inRange(sp), st = fitStats(sp), tot = P.reduce((s, p) => s + area(p), 0);
-      files.push([base + '_fit.txt', ['Binding energy (eV)\tcorrected\tfit\t' + P.map(p => p.name).join('\t'),
-        ...x.map((xx, i) => { const c = P.map(p => pv(xx, p)); return [xx, y[i], c.reduce((a, b) => a + b, 0), ...c].map(num).join('\t'); })].join('\n') + '\n']);
+      files.push([base + '_fit.txt', ['Binding energy (eV)\tintensity\tbackground\tbackground + fit\t' + P.map(p => p.name + ' (above background)').join('\t'),
+        ...x.map((xx, i) => { const c = P.map(p => pv(xx, p)), bb = baseAt(r, xx); return [xx, y[i] + bb, bb, c.reduce((a, b) => a + b, 0) + bb, ...c].map(num).join('\t'); })].join('\n') + '\n']);
       const lines = ['peak\tcenter (eV)\tfwhm (eV)\tL_percent\theight\tarea\tarea_percent\tSNR\tdoublet'];
       for (const p of P) { const row = [p.name, num(p.c), num(p.w), num(p.eta * 100), num(p.h), num(area(p)), num(100 * area(p) / tot), num(snr(p, st)), p.link ? `partner of ${(P.find(q => q.id === p.link.to) || {}).name}: +${p.link.d} eV, area x ${p.link.r}` : ''];
         lines.push(row.join('\t')); sum.push([sp.name, ...row, num(st.r2), num(sp.fit.range[0]), num(sp.fit.range[1])].join('\t')); }
-      lines.push('', 'R2\t' + num(st.r2), 'noise\t' + num(st.noise) + '\tstandard deviation of (corrected - fit) in the fit range; SNR = peak height / noise', 'range\t' + num(sp.fit.range[0]) + '\t' + num(sp.fit.range[1]));
+      lines.push('', 'R2\t' + num(st.r2), 'noise\t' + num(st.noise) + '\tstandard deviation of (intensity - background - fit) in the fit range; SNR = peak height / noise', 'range\t' + num(sp.fit.range[0]) + '\t' + num(sp.fit.range[1]));
       for (const q of sp.fit.ratios) lines.push(ratioName(sp, q) + '\t' + num(ratioVal(sp, q)));
       lines.push('', 'rule\t' + sp.fit.rule, 'weight\t' + (sp.fit.weight ? `x${sp.fit.weight.w} in ${sp.fit.weight.a}-${sp.fit.weight.b}` : 'none'),
-        'despike\t' + (sp.despike.on ? sp.despike.thr + ' x MAD (2nd difference)' : 'off'),
-        'background\t' + (bgShown(sp) ? `${sp.bg.kind || 'shirley'}, ends = mean of ${+sp.bg.navg || 1} points, ${sp.bg.a != null && sp.bg.b != null ? `window ${sp.bg.a}-${sp.bg.b} eV` : 'whole spectrum'}${bgDone(sp) ? '' : ' (shown only, not subtracted)'}` : 'none'),
-        'peak shape\tGaussian-Lorentzian sum (pseudo-Voigt), L_percent = Lorentzian share', 'charge correction (eV)\t' + (sp.shiftOn ? sp.shift : 'none'));
+        'background\t' + (bgShown(sp) ? `${sp.bg.kind || 'shirley'}, ends = mean of ${+sp.bg.navg || 1} points, ${sp.bg.a != null && sp.bg.b != null ? `window ${sp.bg.a}-${sp.bg.b} eV` : 'whole spectrum'}; peaks fitted to intensity minus background` : 'none'),
+        'peak shape\tGaussian-Lorentzian sum (pseudo-Voigt), L_percent = Lorentzian share', 'charge correction (eV)\t' + (sp.shiftOn ? sp.shift + ' (strongest C 1s peak of the file moved to ' + C_REF + ' eV)' : 'none'));
       files.push([base + '_peaks.txt', lines.join('\n') + '\n']);
     }
   }
