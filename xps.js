@@ -38,6 +38,10 @@ function sameRegion(a, b) {
 const inRegion = s => { const c = cur(); return !c || s === c || sameRegion(s, c); };
 const regionSpectra = () => S.spectra.filter(inRegion);
 let LASTSEL = null;
+function autoRange(sp) {                        // keeps the fitting range on the whole (charge-corrected) spectrum while fit.auto is set
+  const d = DATA[sp.id]; if (!d || !sp.fit.auto) return;
+  const sh = sp.shiftOn ? +sp.shift || 0 : 0; sp.fit.range = [d.x[0] + sh, d.x[d.x.length - 1] + sh];
+}
 function newSpec(name, id) {
   return {id, name, color: SPEC_COL[S.spectra.length % SPEC_COL.length], show: true,
     despike: {on: false, thr: 40}, bg: {method: 'none', kind: 'shirley', navg: 3, a: null, b: null, applied: false}, zero: {on: false, mode: 'auto', a: 0, b: 0}, shift: 0, shiftOn: false,
@@ -81,6 +85,7 @@ async function addFiles(files) {
       const d = parseTxt(await f.text()), id = nid();
       DATA[id] = d; const sp = newSpec(f.name.replace(/\.(txt|csv|dat|xy|asc)$/i, ''), id); sp.file = f.name;
       { const q = S.spectra.find(z => sameRegion(z, sp)); if (q) { sp.despike = {...q.despike}; sp.bg = {...q.bg}; sp.zero = {...q.zero}; } }      // new spectra take the settings of their own region
+      sp.fit.auto = true; autoRange(sp);
       S.spectra.push(sp); last = id; n++;
     } catch (e) { bad.push(f.name + ': ' + e.message); }
   }
@@ -540,9 +545,9 @@ function renderPre() {                          // despike and background(+zero)
     $('#xbg_go').onclick = all(q => { q.bg.applied = !bgRem; }, () => bgRem ? 'Background shown again' : 'Background removed');
   }
   $('#xsh_t').onchange = e => { S.shiftTarget = +e.target.value || 0; commit('Charge reference ' + S.shiftTarget + ' eV'); };
-  $('#xsh_v').onchange = e => { const v = +e.target.value || 0; sp.shift = v; sp.shiftOn = v !== 0; PCACHE.clear(); runFit(sp, {iters: 60}); commit(`${sp.name}: shift ${v} eV`); };
+  $('#xsh_v').onchange = e => { const v = +e.target.value || 0; sp.shift = v; sp.shiftOn = v !== 0; autoRange(sp); PCACHE.clear(); runFit(sp, {iters: 60}); commit(`${sp.name}: shift ${v} eV`); };
   $('#xsh_pick').onclick = () => { PICK = !PICK; render(); };
-  if ($('#xsh_clr')) $('#xsh_clr').onclick = e => { e.preventDefault(); sp.shift = 0; sp.shiftOn = false; PCACHE.clear(); runFit(sp, {iters: 60}); commit(`${sp.name}: shift reset`); };
+  if ($('#xsh_clr')) $('#xsh_clr').onclick = e => { e.preventDefault(); sp.shift = 0; sp.shiftOn = false; autoRange(sp); PCACHE.clear(); runFit(sp, {iters: 60}); commit(`${sp.name}: shift reset`); };
 }
 
 // ---------------- waterfall ----------------
@@ -613,7 +618,7 @@ function wfEvents() {
     if (PICK) {                                  // move the clicked point (nearest maximum within ±0.6 eV) to the target
       let i = nearestIdx(best.x, x), j = i; for (let k = 0; k < best.x.length; k++) if (Math.abs(best.x[k] - x) <= 0.6 && best.y[k] > best.y[j]) j = k;
       const sp = best.s, was = sp.shiftOn ? +sp.shift || 0 : 0;
-      sp.shift = +(was + S.shiftTarget - best.x[j]).toFixed(2); sp.shiftOn = true; S.sel = sp.id; PCACHE.clear(); runFit(sp, {iters: 60});
+      sp.shift = +(was + S.shiftTarget - best.x[j]).toFixed(2); sp.shiftOn = true; S.sel = sp.id; autoRange(sp); PCACHE.clear(); runFit(sp, {iters: 60});
       return commit(`${sp.name}: shift ${sp.shift} eV (point ${best.x[j].toFixed(2)} → ${+S.shiftTarget})`);
     }
     select(best.s.id);
@@ -631,11 +636,11 @@ function renderFitBar() {
   b.innerHTML = `<label>range <input type="number" id="xft_a" value="${fr ? +fr[0].toFixed(2) : ''}" step="0.1" style="width:72px"> – <input type="number" id="xft_b" value="${fr ? +fr[1].toFixed(2) : ''}" step="0.1" style="width:72px"> eV</label>`;
   h.classList.toggle('hint', mode() === 'range');
   h.innerHTML = mode() === 'range' ? '<b>Drag across the plot</b> to choose the fitting range (or type it above). It need not match the view.'
-    : 'Double-click: add a peak · drag a dot: move it · scroll: width · drag a dashed line: change the range · doublets are set in the table · the fit updates as you go';
+    : 'Double-click: add a peak · drag a dot: move it · scroll: width · doublets: in the table · the whole scan is fitted; drag a dashed line to narrow the range';
   const rs = $('#xft_rule'); if (rs) rs.onchange = () => { applyRule(sp, rs.value); commit(`${sp.name}: rule ${rs.value}`); };
   for (const k of ['xft_a', 'xft_b']) { const el = $('#' + k); if (el) el.onchange = () => {
     const a = +$('#xft_a').value, c = +$('#xft_b').value; if (!isFinite(a) || !isFinite(c) || a === c) return;
-    sp.fit.range = [Math.min(a, c), Math.max(a, c)]; runFit(sp, {iters: 150}); commit(`${sp.name}: range ${sp.fit.range.map(v => v.toFixed(1)).join('–')} eV`); }; }
+    sp.fit.range = [Math.min(a, c), Math.max(a, c)]; sp.fit.auto = false; runFit(sp, {iters: 150}); commit(`${sp.name}: range ${sp.fit.range.map(v => v.toFixed(1)).join('–')} eV`); }; }
 }
 let FT = null, ftDrag = null, liveT = null, wheelT = null;
 function drawFit() {
@@ -688,7 +693,7 @@ function fitEvents() {
     if (ftDrag.kind === 'peak') { const p = ftDrag.p, m = mainOf(sp0.fit.peaks, p);          // dragging the partner of a doublet moves its main peak
       if (m !== p) { m.c = FT.ix(e.offsetX) - (+p.link.d || 0); m.h = Math.max(0, FT.iy(e.offsetY)) / (+p.link.r || 1); } else { p.c = FT.ix(e.offsetX); p.h = Math.max(0, FT.iy(e.offsetY)); }
       cv.style.cursor = 'grabbing'; liveFit(m.id); return; }
-    if (ftDrag.kind === 'edge') { const v = FT.ix(e.offsetX), o = fr0[1 - ftDrag.i]; fr0[ftDrag.i] = ftDrag.i ? Math.max(v, o + 0.5) : Math.min(v, o - 0.5);
+    if (ftDrag.kind === 'edge') { const v = FT.ix(e.offsetX), o = fr0[1 - ftDrag.i]; sp0.fit.auto = false; fr0[ftDrag.i] = ftDrag.i ? Math.max(v, o + 0.5) : Math.min(v, o - 0.5);
       $('#xft_a').value = fr0[0].toFixed(2); $('#xft_b').value = fr0[1].toFixed(2); liveFit(null); return; }
     ftDrag.b = FT.ix(e.offsetX); if (Math.abs(e.offsetX - ftDrag.X) > 4) ftDrag.moved = true; drawFit();
   });
@@ -698,7 +703,7 @@ function fitEvents() {
     if (d.kind === 'edge') { runFit(sp, {iters: 150}); return commit(`${sp.name}: fitting range ${sp.fit.range.map(v => v.toFixed(1)).join('–')} eV`); }
     if (!d.moved) { drawFit(); return; }
     const a = Math.min(d.a, d.b), b = Math.max(d.a, d.b);
-    if (d.kind === 'range') { sp.fit.range = [a, b]; runFit(sp, {iters: 150}); commit(`${sp.name}: fitting range ${a.toFixed(1)}–${b.toFixed(1)} eV`); }
+    if (d.kind === 'range') { sp.fit.range = [a, b]; sp.fit.auto = false; runFit(sp, {iters: 150}); commit(`${sp.name}: fitting range ${a.toFixed(1)}–${b.toFixed(1)} eV`); }
   });
   cv.addEventListener('dblclick', e => {
     const sp = cur(); if (!sp) return;
