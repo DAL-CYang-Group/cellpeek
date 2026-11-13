@@ -259,7 +259,7 @@ function build() {
   }
   $('#d_from').onclick = () => { const src = eis().state().spectra.filter(q => !S.spectra.some(s => s.name === q.name)); if (!src.length) return msg('No new spectra in the EIS ECM tab'); addSpectra(src); };
   $('#d_lam').onchange = e => { const v = +e.target.value; if (!(v > 0)) { e.target.value = S.lam; return; } S.lam = v; for (const s of S.spectra) { s.drt = null; s.pk = null; } render(); compute(S.spectra.slice()); };
-  $('#d_x').onchange = e => { S.xlog = e.target.value === 'log'; drawAll(); };
+  $('#d_x').onchange = e => { S.xlog = e.target.value === 'log'; drawAll(); save(); };
   $('#d_clear').onclick = () => { S.spectra = []; S.touched = null; S.refId = null; S.rule = {nL: 1, nR: 1}; S.ecmMode = 2; msg(''); render(); };
   $('#d_export').onclick = exportCsv;
   let rt; new ResizeObserver(() => { if (sec.hidden) return; clearTimeout(rt); rt = setTimeout(drawAll, 80); }).observe(sec);
@@ -290,6 +290,7 @@ function renderTable() {
   for (const s of S.spectra) { const c = $('#dcard_' + s.id); if (c) $('.bar', c).innerHTML = head(s, R.get(s.id)); }
 }
 function render() {
+  save();
   const sec = $('section[data-pane=drt]'); if (!sec || sec.hidden) return;
   $('#d_plots').innerHTML = S.spectra.length ? S.spectra.map(s => `<div class="mod" id="dcard_${s.id}"><div class="bar"></div><div class="plot"><canvas id="dcv_${s.id}" style="touch-action:none;cursor:col-resize"></canvas></div></div>`).join('')
     : '<div class="mod"><div class="note" style="padding:14px 4px">Drop the impedance files of one cell (frequency, Z′, Z″) on the box above, or take the spectra already loaded in the EIS ECM tab. Each spectrum gets its γ(τ) plot here, one below the other.</div></div>';
@@ -309,6 +310,18 @@ function exportCsv() {
   if (NQP.log) NQP.log('drt_export', {n: S.spectra.length});
 }
 
-window.addEventListener('DOMContentLoaded', () => { build(); render(); window.addEventListener('cellpeek:tab', () => render()); });
+// the set (spectra, DRT, range rule, λ, axis) is kept in this browser and comes back when the page is opened again
+let saveT = null, ready = false;
+function save() {
+  if (!ready || !NQP.idb) return;
+  clearTimeout(saveT); saveT = setTimeout(() => { NQP.idb.set('drt', {...S, seq}).catch(() => {}); }, 600);
+}
+async function restore() {
+  try { const r = NQP.idb && await NQP.idb.get('drt');
+    if (r && Array.isArray(r.spectra)) { const {seq: q, ...st} = r; Object.assign(S, st); seq = q || r.spectra.length;
+      if ($('#d_lam')) { $('#d_lam').value = S.lam; $('#d_x').value = S.xlog ? 'log' : 'lin'; } } } catch {}
+  ready = true;
+}
+window.addEventListener('DOMContentLoaded', async () => { build(); await restore(); render(); if (S.spectra.length) compute(S.spectra.filter(s => !s.drt)); window.addEventListener('cellpeek:tab', () => render()); });
 NQP.drt = {state: () => S, ...API};
 })();

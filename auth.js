@@ -27,7 +27,7 @@ let IP = ''; const ipP = publicIp().then(x => (IP = x));
 
 // ---------- gate (full-screen card shown until the user may use the page) ----------
 function gate(html) { const g = $('#gate'); g.hidden = false; $('#gatecard').innerHTML = html; return $('#gatecard'); }
-function openPage() { $('#gate').hidden = true; }
+function openPage() { $('#gate').hidden = true; if (NQP.onOpen) NQP.onOpen(); }
 const TITLE = `<h2>CellPeek - DAL</h2>`;
 
 function showRegister(msg) {

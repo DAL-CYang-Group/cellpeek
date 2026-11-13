@@ -451,7 +451,35 @@ function showDirty() {
 }
 // anything changed (cells, colours, settings, modules on/off): redraw by itself shortly after the last change
 let autoT = null;
-function markDirty() { showDirty(); clearTimeout(autoT); autoT = setTimeout(plotAll, 250); }
+function markDirty() { showDirty(); clearTimeout(autoT); autoT = setTimeout(plotAll, 250); saveNeware(); }
+// the cells, the plots that are on, their settings and the typed axis limits are kept in this browser and come back when the page is opened again
+// (only the list is kept; the cycling data are read from the data folder again)
+let NW_READY = false, nwT = null;
+function saveNeware() {
+  if (!NW_READY) return;
+  clearTimeout(nwT); nwT = setTimeout(() => { try { localStorage.setItem('nqp_neware', JSON.stringify({
+    cells: cells.map(c => ({bc: c.bc, color: c.color, userFile: c.userFile || null, ranged: !!c.ranged})),
+    on: ON, opts: Object.fromEntries(M.map(m => [m.id, settings(m)])), lim: LIM})); } catch {} }, 400);
+}
+function restoreNeware() {
+  if (NW_READY) return; NW_READY = true;
+  let r = null; try { r = JSON.parse(localStorage.getItem('nqp_neware')); } catch {}
+  if (!r) return;
+  try {
+    M.forEach((m, i) => { const d = $('#mod-' + m.id), o = (r.opts || {})[m.id] || {};
+      if (r.on) { ON[m.id] = !!r.on[m.id]; d.classList.toggle('off', !ON[m.id]); const b = $('#modebar').children[i]; if (b) b.classList.toggle('on', ON[m.id]); }
+      d.querySelectorAll('[data-k]').forEach(e => { const v = o[e.dataset.k]; if (v == null) return; if (e.type === 'checkbox') e.checked = !!v; else e.value = v; });
+      syncShow(d);
+      if (r.lim && r.lim[m.id]) LIM[m.id] = r.lim[m.id]; });
+    for (const q of r.cells || []) {
+      if (!/^\d{4,9}$/.test(q.bc) || cells.some(c => c.bc === q.bc)) continue;
+      const c = {bc: q.bc, color: q.color || nextColor(), file: q.userFile || null, userFile: q.userFile || undefined, candidates: [], data: null, err: null, loading: true, ranged: !!q.ranged};
+      cells.push(c); loadCell(c, q.userFile || undefined);
+    }
+    renderChips(); markDirty();
+  } catch (e) { status('Could not restore the last session: ' + e.message); }
+}
+NQP.onOpen = restoreNeware;                    // called by auth.js when the page opens (data source known)
 
 // ---------------- cells ----------------
 function nextColor() { const used = new Set(cells.map(c => c.color)); return PALETTE.find(c => !used.has(c)) || '#' + Math.floor(Math.random()*0xffffff).toString(16).padStart(6,'0'); }
@@ -897,7 +925,7 @@ async function drawModule(m) {          // returns true if it redrew
   const out = m.id === 'dqdv' ? await dqdvPlot(m, s, el) : scatterPlot(m, s, el);
   $('.note', d).textContent = out.note || ''; rendered[m.id] = {sig, plots: out.plots}; return true;
 }
-async function renderOne(m) { try { if (await drawModule(m)) status(`Redrew: ${m.title}`); } catch (e) { status('Error: ' + e.message); } showDirty(); }
+async function renderOne(m) { try { if (await drawModule(m)) status(`Redrew: ${m.title}`); } catch (e) { status('Error: ' + e.message); } showDirty(); saveNeware(); }
 let plotting = false, plotAgain = false, loggedCells = '';
 async function plotAll() {
   if (plotting) { plotAgain = true; return; }          // a change during a redraw: redraw once more afterwards

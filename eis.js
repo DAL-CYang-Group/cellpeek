@@ -331,6 +331,7 @@ function renderTable() {
   } else w.hidden = true;
 }
 function render() {
+  save();
   const sec = $('section[data-pane=eis]'); if (!sec || sec.hidden) return;
   $('#e_mode').value = String(S.mode);
   const box = $('#e_plots');
@@ -350,6 +351,18 @@ function exportCsv() {
   if (NQP.log) NQP.log('eis_export', {n: S.spectra.length});
 }
 
-window.addEventListener('DOMContentLoaded', () => { build(); render(); window.addEventListener('cellpeek:tab', () => render()); });
+// the set (spectra, fits, model, area) is kept in this browser and comes back when the page is opened again
+let saveT = null, ready = false;
+function save() {
+  if (!ready || !NQP.idb) return;
+  clearTimeout(saveT); saveT = setTimeout(() => { NQP.idb.set('eis', {spectra: S.spectra, mode: S.mode, area: S.area, sym: S.sym, seq}).catch(() => {}); }, 600);
+}
+async function restore() {
+  try { const r = NQP.idb && await NQP.idb.get('eis');
+    if (r && Array.isArray(r.spectra)) { Object.assign(S, {spectra: r.spectra, mode: r.mode === 3 ? 3 : 2, area: r.area || '', sym: !!r.sym}); seq = r.seq || r.spectra.length;
+      if ($('#e_area')) { $('#e_area').value = S.area; $('#e_sym').checked = S.sym; } } } catch {}
+  ready = true;
+}
+window.addEventListener('DOMContentLoaded', async () => { build(); await restore(); render(); fitQueue(S.spectra.filter(s => !s.fit)); window.addEventListener('cellpeek:tab', () => render()); });
 NQP.eis = {addText: (name, text) => addFiles([new File([text], name)]), state: () => S, ...API};
 })();
