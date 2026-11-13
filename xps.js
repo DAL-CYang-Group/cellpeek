@@ -515,30 +515,17 @@ function renderList() {
   if (!S.spectra.length) { box.innerHTML = '<div class="empty">No spectra yet — drop PHI .spe files, or text files with two columns (binding energy in eV, intensity), on the box above.</div>'; return; }
   box.innerHTML = S.spectra.map(s => `<div class="srow${s.id === S.sel ? ' on' : ''}${inRegion(s) ? '' : ' other'}" data-id="${s.id}"${inRegion(s) ? '' : ' title="Another energy region: click to show the spectra of that region"'}>
     <input type="checkbox" ${s.show ? 'checked' : ''} title="Show in waterfall"><input type="color" value="${s.color}">
-    <span class="nm" title="Rest the pointer here, then click to edit the label · file: ${esc(s.file || s.name)}">${esc(s.name)}</span><span class="ed" title="Rename">✎</span>
+    <span class="nm" title="file: ${esc(s.file || s.name)}">${esc(s.name)}</span>
     <span class="meta">${s.fit.peaks.length ? s.fit.peaks.length + ' peaks' : ''}${bgDone(s) ? ' · bg removed' : bgShown(s) ? ' · bg shown' : ''}${s.despike.on ? ' · despiked' : ''}</span>
     <span class="x" title="Remove">✕</span></div>`).join('');
   box.querySelectorAll('.srow').forEach(r => { const s = S.spectra.find(q => q.id === r.dataset.id);
-    r.onclick = e => { if (e.target.tagName === 'INPUT' || e.target.classList.contains('x') || e.target.classList.contains('ed')) return; select(s.id); };
-    const rename = () => { const nm = r.querySelector('.nm'); if (!nm) return;
-      const inp = document.createElement('input'); inp.type = 'text'; inp.value = s.name; inp.className = 'nmedit'; nm.replaceWith(inp); inp.focus(); inp.select();
-      let done = false; const fin = ok => { if (done) return; done = true; const v = inp.value.trim();
-        if (ok && v && v !== s.name) { const old = s.name; s.file = s.file || old; s.name = v; commit(`Rename ${old} → ${v}`); } else renderList(); };
-      inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') fin(true); if (e.key === 'Escape') fin(false); };
-      inp.onblur = () => fin(true); };
-    const nm = r.querySelector('.nm'); let armT = null;                  // a quick click selects the spectrum; resting on the name first makes the click edit it
-    nm.onmouseenter = () => { armT = setTimeout(() => nm.classList.add('arm'), NAME_ARM_MS); };
-    nm.onmouseleave = () => { clearTimeout(armT); nm.classList.remove('arm'); };
-    nm.onclick = e => { if (nm.classList.contains('arm')) { e.stopPropagation(); clearTimeout(armT); rename(); } };
-    nm.ondblclick = e => { e.stopPropagation(); rename(); };
-    r.querySelector('.ed').onclick = e => { e.stopPropagation(); rename(); };
+    r.onclick = e => { if (e.target.tagName === 'INPUT' || e.target.classList.contains('x')) return; select(s.id); };
     r.querySelector('[type=checkbox]').onchange = e => { s.show = e.target.checked; commit((s.show ? 'Show ' : 'Hide ') + s.name); };
     r.querySelector('[type=color]').onchange = e => { s.color = e.target.value; commit('Colour ' + s.name); };
     r.querySelector('.x').onclick = () => { S.spectra = S.spectra.filter(q => q !== s); if (S.sel === s.id) S.sel = S.spectra[0] ? S.spectra[0].id : null; commit('Remove ' + s.name); };
   });
 }
 function select(id) { if (S.sel === id) return; S.sel = id; ACTIVE = null; commit('Select ' + (cur() || {}).name); }
-const NAME_ARM_MS = 350;
 function renderPre() {                          // despike and background(+zero) act on all spectra; shift is set curve by curve
   const sp = cur(), box = $('#xwf_pre');
   if (!sp) { box.innerHTML = ''; return; }
