@@ -29,11 +29,11 @@ let uid = Date.now() % 1e6;
 const nid = () => (++uid).toString(36);
 
 const cur = () => S.spectra.find(s => s.id === S.sel) || null;
-// Two spectra belong to the same region (core level) when their energy ranges overlap by more than half of the shorter one.
+// Two spectra belong to the same region (core level) when their energy ranges overlap by more than half of the longer one.
 function sameRegion(a, b) {
   const A = DATA[a.id], B = DATA[b.id]; if (!A || !B) return false;
   const a0 = A.x[0], a1 = A.x[A.x.length - 1], b0 = B.x[0], b1 = B.x[B.x.length - 1];
-  return Math.min(a1, b1) - Math.max(a0, b0) > 0.5 * Math.min(a1 - a0, b1 - b0);
+  return Math.min(a1, b1) - Math.max(a0, b0) > 0.5 * Math.max(a1 - a0, b1 - b0);      // of the longer one: a survey scan is not in the region of a narrow scan
 }
 const inRegion = s => { const c = cur(); return !c || s === c || sameRegion(s, c); };
 const regionSpectra = () => S.spectra.filter(inRegion);
@@ -77,20 +77,47 @@ function parseTxt(text) {
   if (x[0] > x[x.length - 1]) { x.reverse(); y.reverse(); }
   return {x, y};
 }
+// PHI MultiPak .spe (VersaProbe): text header between SOFH and EOFH, then binary data.
+//   header   SpectralRegDef: <no> <no> <name> <Z> <points> <step eV> <start eV> <end eV> … <dwell s> <pass energy eV> …   one line per region
+//   binary   4 × uint32 (group, number of traces, bytes of all trace headers, 16), then one 96-byte header per trace:
+//            uint32[5] = number of points, 4 chars at 72 = 'f4' | 'f8', uint32 at 76 = bytes of data, at 80 = offset of the data from the start of the binary part
+// Intensities are counts per second; the energy axis is rebuilt from start and step. Returns [{region, x[], y[]}] with x ascending.
+function parseSpe(buf) {
+  const b = new Uint8Array(buf), find = t => { for (let i = 0; i + t.length <= b.length; i++) { let k = 0; while (k < t.length && b[i + k] === t.charCodeAt(k)) k++; if (k === t.length) return i; } return -1; };
+  const e = find('EOFH'); if (find('SOFH') !== 0 || e < 0) throw new Error('not a PHI .spe file');
+  let hdr = ''; for (let i = 0; i < e; i++) hdr += String.fromCharCode(b[i]);
+  const regs = hdr.split(/\r?\n/).filter(l => l.startsWith('SpectralRegDef:')).map(l => { const t = l.slice(15).trim().split(/\s+/); return {name: t[2], n: +t[4], step: +t[5], start: +t[6]}; });
+  if (!regs.length) throw new Error('no spectral regions in the header');
+  let o = e + 4; while (b[o] === 13 || b[o] === 10) o++;
+  const dv = new DataView(b.buffer, b.byteOffset + o, b.length - o), nTr = dv.getUint32(4, true), per = nTr ? dv.getUint32(8, true) / nTr : 0;
+  if (!nTr || per < 84 || 16 + nTr * per > dv.byteLength) throw new Error('unexpected binary layout');
+  const out = [];
+  for (let k = 0; k < nTr; k++) { const h = 16 + k * per, n = dv.getUint32(h + 20, true), f8 = dv.getUint8(h + 72) === 102 && dv.getUint8(h + 73) === 56, off = dv.getUint32(h + 80, true), w = f8 ? 8 : 4;
+    if (!n || off + n * w > dv.byteLength) throw new Error('trace ' + (k + 1) + ' is cut off');
+    let r = regs[k % regs.length]; if (r.n !== n) r = regs.find(q => q.n === n); if (!r) throw new Error('trace ' + (k + 1) + ' matches no region of the header');
+    const x = new Array(n), y = new Array(n);
+    for (let i = 0; i < n; i++) { x[i] = +(r.start + i * r.step).toFixed(4); y[i] = f8 ? dv.getFloat64(off + i * 8, true) : dv.getFloat32(off + i * 4, true); }
+    if (x[0] > x[n - 1]) { x.reverse(); y.reverse(); }
+    out.push({region: r.name + (nTr > regs.length ? ' #' + (Math.floor(k / regs.length) + 1) : ''), x, y}); }
+  return out;
+}
 async function addFiles(files) {
   let n = 0, last = null; const bad = [];
   for (const f of files) {
     if (/\.json$/i.test(f.name)) { try { loadProject(JSON.parse(await f.text())); } catch (e) { bad.push(f.name + ': ' + e.message); } continue; }
     try {
-      const d = parseTxt(await f.text()), id = nid();
-      DATA[id] = d; const sp = newSpec(f.name.replace(/\.(txt|csv|dat|xy|asc)$/i, ''), id); sp.file = f.name;
-      { const q = S.spectra.find(z => sameRegion(z, sp)); if (q) { sp.despike = {...q.despike}; sp.bg = {...q.bg}; sp.zero = {...q.zero}; } }      // new spectra take the settings of their own region
-      sp.fit.auto = true; autoRange(sp);
-      S.spectra.push(sp); last = id; n++;
+      const base = f.name.replace(/\.(txt|csv|dat|xy|asc|spe)$/i, '');
+      const list = /\.spe$/i.test(f.name) ? parseSpe(await f.arrayBuffer()).map(t => ({name: t.region + ' · ' + base, d: {x: t.x, y: t.y}}))      // one spectrum per region of the file
+        : [{name: base, d: parseTxt(await f.text())}];
+      for (const it of list) { const id = nid();
+        DATA[id] = it.d; const sp = newSpec(it.name, id); sp.file = f.name;
+        { const q = S.spectra.find(z => sameRegion(z, sp)); if (q) { sp.despike = {...q.despike}; sp.bg = {...q.bg}; sp.zero = {...q.zero}; } }      // new spectra take the settings of their own region
+        sp.fit.auto = true; autoRange(sp);
+        S.spectra.push(sp); last = id; n++; }
     } catch (e) { bad.push(f.name + ': ' + e.message); }
   }
   if (last) { S.sel = last; }
-  if (n) commit(`Load ${n} file${n > 1 ? 's' : ''}`);
+  if (n) commit(`Load ${n} spectr${n > 1 ? 'a' : 'um'}`);
   msg(bad.length ? 'Not loaded: ' + bad.join('; ') : n ? `${n} ${n > 1 ? 'spectra' : 'spectrum'} loaded` : '');
   if (n && window.NQP && NQP.log) NQP.log('xps_load', {n});
 }
@@ -370,8 +397,8 @@ function axisUI(cv, F, ykey, xr, yr) {
 function build() {
   const tb = $('.toolbar[data-pane=xps]');
   tb.innerHTML = `
-    <label class="rdrop" id="xr_drop" title="Drop XPS spectra here (text files with two columns: binding energy, intensity), or click to choose several">
-      <input type="file" id="xr_file" multiple accept=".txt,.csv,.dat,.xy,.asc,.json" hidden>
+    <label class="rdrop" id="xr_drop" title="Drop XPS spectra here: PHI MultiPak .spe files (every region becomes a spectrum) or text files with two columns (binding energy, intensity); or click to choose several">
+      <input type="file" id="xr_file" multiple accept=".spe,.txt,.csv,.dat,.xy,.asc,.json" hidden>
       <span class="ic">⇣</span><span><b>Drop XPS spectra here</b><br><u>or click to choose files…</u></span></label>
     <span class="hbtns">
       <button type="button" id="xr_undo" class="big" title="Undo (Ctrl+Z)">↶ Undo</button>
@@ -485,7 +512,7 @@ function render() {
 }
 function renderList() {
   const box = $('#xwf_list');
-  if (!S.spectra.length) { box.innerHTML = '<div class="empty">No spectra yet — drop text files (two columns: binding energy in eV, intensity) on the box above.</div>'; return; }
+  if (!S.spectra.length) { box.innerHTML = '<div class="empty">No spectra yet — drop PHI .spe files, or text files with two columns (binding energy in eV, intensity), on the box above.</div>'; return; }
   box.innerHTML = S.spectra.map(s => `<div class="srow${s.id === S.sel ? ' on' : ''}${inRegion(s) ? '' : ' other'}" data-id="${s.id}"${inRegion(s) ? '' : ' title="Another energy region: click to show the spectra of that region"'}>
     <input type="checkbox" ${s.show ? 'checked' : ''} title="Show in waterfall"><input type="color" value="${s.color}">
     <span class="nm" title="Rest the pointer here, then click to edit the label · file: ${esc(s.file || s.name)}">${esc(s.name)}</span><span class="ed" title="Rename">✎</span>
@@ -895,5 +922,5 @@ window.addEventListener('DOMContentLoaded', async () => {
   build(); await restore(); render();
   window.addEventListener('cellpeek:tab', () => render());
 });
-NQP.xps = {wf: () => WF, addText: (name, text) => addFiles([new File([text], name)]), state: () => S, fitNow: () => { runFit(cur(), {iters: 300}); commit('fit'); }};
+NQP.xps = {parseSpe, wf: () => WF, addText: (name, text) => addFiles([new File([text], name)]), state: () => S, fitNow: () => { runFit(cur(), {iters: 300}); commit('fit'); }};
 })();
