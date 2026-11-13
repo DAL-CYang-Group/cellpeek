@@ -140,8 +140,13 @@ function fitCfg(d, sh, cfg) {
   return {cfg, o, cost: ss, err: 100 * Math.sqrt(ss / n), bic: N2 * Math.log(ss / N2 + 1e-300) + k * Math.log(N2)};
 }
 // opt = {n: 'auto'|2|3, tail: 'auto'|'on'|'off'}
-function fitSpectrum(d, opt = {}) {
-  const sh = shape(d), tail = opt.tail === 'on' ? true : opt.tail === 'off' ? false : sh.tail, L = sh.inductive;
+// The inductive points at the high-frequency end (−Z″ < 0: cables, cell hardware) are left out of the fit: there Z′ changes with
+// frequency too, which an ideal inductor cannot follow, and it spoiled the fit of the rest. nSkip = number of points left out.
+const FITV = 2;                                  // version of the fitting method (stored fits of an older version are redone)
+function fitSpectrum(d0, opt = {}) {
+  const k0 = shape(d0).iInd, nSkip = k0 > 0 && d0.f.length - k0 >= 10 ? k0 : 0;
+  const d = nSkip ? {f: d0.f.slice(nSkip), zr: d0.zr.slice(nSkip), zi: d0.zi.slice(nSkip)} : d0;
+  const sh = shape(d), tail = opt.tail === 'on' ? true : opt.tail === 'off' ? false : sh.tail, L = nSkip ? false : sh.inductive;
   const run = n => fitCfg(d, sh, {n, tail, L});
   let fit, note = '';
   if (opt.n === 2 || opt.n === 3) fit = run(opt.n);
@@ -154,10 +159,10 @@ function fitSpectrum(d, opt = {}) {
   if (!fit) return null;
   const A = fit.o.arcs, Rct = A.slice(1).reduce((s, a) => s + a.R, 0);
   if (L) note = 'inductive points at high frequency: an inductor is included';
-  return {n: A.length, tail, tailAuto: sh.tail, L, R_HFI: fit.o.R0, R_contact: A[0].R, R_ct: Rct, err: fit.err, model: fit.o, note};
+  return {v: FITV, n: A.length, tail, tailAuto: sh.tail, L, nSkip, R_HFI: fit.o.R0, R_contact: A[0].R, R_ct: Rct, R_tot: A[0].R + Rct, err: fit.err, model: fit.o, note};
 }
 
-const API = {parseEIS, fitSpectrum, zModel, zarc, shape};
+const API = {parseEIS, fitSpectrum, zModel, zarc, shape, FITV};
 if (typeof module !== 'undefined' && module.exports) { module.exports = API; return; }
 if (typeof document === 'undefined') return;
 
@@ -244,10 +249,10 @@ function drawNyq(cv, s, rg) {
       for (const f of fs) { const z = zarc(a.R, a.tau, a.a, TWO_PI * f); g.lineTo(X((x0 + z[0]) * k), Y(-z[1] * k)); }
       g.lineTo(X((x0 + a.R) * k), Y(0)); g.closePath(); g.fillStyle = c + '47'; g.fill(); g.strokeStyle = c; g.lineWidth = 1; g.stroke(); x0 += a.R; });
     g.strokeStyle = '#111'; g.lineWidth = 1.7; g.beginPath();                    // total fit over the measured range
-    const m0 = Math.log(s.f[0]), m1 = Math.log(s.f[s.f.length - 1]); for (let i = 0; i <= 400; i++) { const z = zModel(o, Math.exp(m0 + (m1 - m0) * i / 400)); i ? g.lineTo(X(z[0] * k), Y(-z[1] * k)) : g.moveTo(X(z[0] * k), Y(-z[1] * k)); } g.stroke();
+    const m0 = Math.log(s.f[fit.nSkip || 0]), m1 = Math.log(s.f[s.f.length - 1]); for (let i = 0; i <= 400; i++) { const z = zModel(o, Math.exp(m0 + (m1 - m0) * i / 400)); i ? g.lineTo(X(z[0] * k), Y(-z[1] * k)) : g.moveTo(X(z[0] * k), Y(-z[1] * k)); } g.stroke();
   }
-  g.strokeStyle = '#6b7480'; g.lineWidth = 1.1; g.fillStyle = '#fff';             // data
-  for (let i = 0; i < s.f.length; i++) { g.beginPath(); g.arc(X(s.zr[i] * k), Y(-s.zi[i] * k), 3, 0, 7); g.fill(); g.stroke(); }
+  g.lineWidth = 1.1; g.fillStyle = '#fff';                                        // data; the inductive points left out of the fit are lighter
+  for (let i = 0; i < s.f.length; i++) { g.strokeStyle = fit && i < (fit.nSkip || 0) ? '#c5cbd3' : '#6b7480'; g.beginPath(); g.arc(X(s.zr[i] * k), Y(-s.zi[i] * k), 3, 0, 7); g.fill(); g.stroke(); }
   if (fit) {                                       // what is reported: R_HFI (point on the axis) and R_ct (span of the later semicircles)
     const o = fit.model, a = (o.R0 + o.arcs[0].R) * k, b = (o.R0 + o.arcs.reduce((t, q) => t + q.R, 0)) * k, yb = Y(0) + 0.5;
     g.font = '600 11.5px -apple-system, "Segoe UI", sans-serif'; g.fillStyle = '#111'; g.beginPath(); g.arc(X(o.R0 * k), yb, 4, 0, 7); g.fill();
@@ -280,7 +285,7 @@ function build() {
       <div class="mod" id="e_res">
         <div class="bar"><span class="t">Results</span><span class="opts gmuted" id="e_sum"></span></div>
         <div id="e_tab"></div>
-        <div class="note">R_HFI: high-frequency intercept with the Z′ axis. R_ct: summed diameters of the semicircle(s) after the first one. The first, highest-frequency semicircle (grey, contact) is not included. The tail is detected for each spectrum.</div>
+        <div class="note">R_HFI: high-frequency intercept with the Z′ axis. R_ct: summed diameters of the semicircle(s) after the first one. The first, highest-frequency semicircle (grey, contact) is not included. Width: contact + R_ct, the whole span of the semicircles. Points with −Z″ &lt; 0 at the high-frequency end (inductive, light grey) are not used in the fit. The tail is detected for each spectrum.</div>
       </div>
     </div>`;
   $('#e_file').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
@@ -299,7 +304,7 @@ function build() {
 }
 const headHtml = s => { const k = scale(), u = unit(), f = good(s), poor = f && f.err > POOR;
   return `<span class="t" title="${esc(s.name)}">${esc(s.name)}</span>
-    <span class="opts">${!s.fit ? 'fitting…' : !f ? '<b style="color:#b00">could not be fitted</b>' : `R_HFI <b>${fmt(f.R_HFI * k)}</b> · R_ct <b>${fmt(f.R_ct * k)}</b> ${u} · ${f.tail ? 'tail' : 'no tail'} · <span style="${poor ? 'color:#b00;font-weight:600' : ''}">error ${f.err.toFixed(2)} %</span>`}</span>
+    <span class="opts">${!s.fit ? 'fitting…' : !f ? '<b style="color:#b00">could not be fitted</b>' : `R_HFI <b>${fmt(f.R_HFI * k)}</b> · R_ct <b>${fmt(f.R_ct * k)}</b> · width <b>${fmt((f.R_contact + f.R_ct) * k)}</b> ${u} · ${f.tail ? 'tail' : 'no tail'} · <span style="${poor ? 'color:#b00;font-weight:600' : ''}">error ${f.err.toFixed(2)} %</span>`}</span>
     <button type="button" class="expbtn" data-png="${s.id}">PNG</button>`; };
 function drawAll() { const rg = commonRange(); for (const s of S.spectra) { const cv = $('#cv_' + s.id); if (cv) drawNyq(cv, s, rg); } }
 function renderRow(s) {                           // after one fit: its card, the table and the banner (the common axes may have moved)
@@ -312,11 +317,11 @@ function renderTable() {
   const k = scale(), u = unit();
   const rows = S.spectra.map(q => { const t = good(q), poor = t && t.err > POOR;
     return `<tr data-id="${q.id}" style="cursor:pointer"><td style="max-width:230px;overflow:hidden;text-overflow:ellipsis" title="${esc(q.name)}">${esc(q.name)}</td>
-      <td style="text-align:right"><b>${t ? fmt(t.R_HFI * k) : q.fit ? 'failed' : '…'}</b></td><td style="text-align:right"><b>${t ? fmt(t.R_ct * k) : ''}</b></td>
+      <td style="text-align:right"><b>${t ? fmt(t.R_HFI * k) : q.fit ? 'failed' : '…'}</b></td><td style="text-align:right"><b>${t ? fmt(t.R_ct * k) : ''}</b></td><td style="text-align:right">${t ? fmt((t.R_contact + t.R_ct) * k) : ''}</td>
       <td>${t ? (t.tail ? 'yes' : 'no') : ''}</td>
       <td style="text-align:right;${poor ? 'color:#b00;font-weight:600' : 'color:var(--muted)'}">${t ? t.err.toFixed(2) : ''}</td>
       <td class="x" title="Remove">✕</td></tr>`; }).join('');
-  $('#e_tab').innerHTML = S.spectra.length ? `<table class="pk"><thead><tr><th>Spectrum</th><th style="text-align:right">R_HFI<br>(${u})</th><th style="text-align:right">R_ct<br>(${u})</th><th>tail</th>
+  $('#e_tab').innerHTML = S.spectra.length ? `<table class="pk"><thead><tr><th>Spectrum</th><th style="text-align:right">R_HFI<br>(${u})</th><th style="text-align:right">R_ct<br>(${u})</th><th style="text-align:right" title="Total width of the semicircles: contact + R_ct. This sum is steadier than its two parts when the semicircles overlap">width<br>(${u})</th><th>tail</th>
       <th style="text-align:right" title="Root-mean-square relative deviation between fit and data">error<br>(%)</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="gmuted" style="padding:8px 2px">No spectra yet.</div>';
   $('#e_tab').querySelectorAll('tr[data-id]').forEach(tr => { const q = S.spectra.find(z => z.id === tr.dataset.id);
@@ -343,8 +348,8 @@ function render() {
 function exportCsv() {
   if (!S.spectra.length) return msg('Nothing to export');
   const k = scale(), u = unit().replace('Ω', 'ohm').replace('²', '2'), n7 = v => String(+(+v).toPrecision(6));
-  const rows = [['spectrum', `R_HFI (${u})`, `R_ct (${u})`, 'semicircles', 'diffusion tail', 'fit error (%)']];
-  for (const q of S.spectra) { const t = good(q); rows.push([q.name, t ? n7(t.R_HFI * k) : '', t ? n7(t.R_ct * k) : '', S.mode, t ? (t.tail ? 'yes' : 'no') : '', t ? t.err.toFixed(2) : 'failed']); }
+  const rows = [['spectrum', `R_HFI (${u})`, `R_ct (${u})`, `semicircle width = R_contact + R_ct (${u})`, `R_contact (${u})`, 'semicircles', 'diffusion tail', 'fit error (%)', 'inductive points left out']];
+  for (const q of S.spectra) { const t = good(q); rows.push([q.name, t ? n7(t.R_HFI * k) : '', t ? n7(t.R_ct * k) : '', t ? n7((t.R_contact + t.R_ct) * k) : '', t ? n7(t.R_contact * k) : '', S.mode, t ? (t.tail ? 'yes' : 'no') : '', t ? t.err.toFixed(2) : 'failed', t ? t.nSkip || 0 : '']); }
   const csv = rows.map(r => r.map(c => /[",\n]/.test(String(c)) ? '"' + String(c).replace(/"/g, '""') + '"' : c).join(',')).join('\r\n') + '\r\n';
   const d = new Date(), stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], {type: 'text/csv'})); a.download = `${stamp}_EIS_RHFI_Rct.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -360,6 +365,7 @@ function save() {
 async function restore() {
   try { const r = NQP.idb && await NQP.idb.get('eis');
     if (r && Array.isArray(r.spectra)) { Object.assign(S, {spectra: r.spectra, mode: r.mode === 3 ? 3 : 2, area: r.area || '', sym: !!r.sym}); seq = r.seq || r.spectra.length;
+      for (const q of S.spectra) if (q.fit && q.fit.v !== FITV) q.fit = null;        // fitted with an older method: fit again
       if ($('#e_area')) { $('#e_area').value = S.area; $('#e_sym').checked = S.sym; } } } catch {}
   ready = true;
 }

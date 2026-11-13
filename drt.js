@@ -137,7 +137,7 @@ function ecmQueue() {                             // same principle as the ECM t
   ecmBusy = true; let i = 0;
   const step = () => { if (i >= todo.length) { ecmBusy = false; return finishEcm(); }
     const s = todo[i++]; msg(`ECM comparison ${i} / ${todo.length} …`);
-    try { const f = eis().fitSpectrum(s, {n: S.ecmMode, tail: 'auto'}); s.ecm = f ? {mode: S.ecmMode, R_ct: f.R_ct, R_contact: f.R_contact, err: f.err} : {mode: S.ecmMode, failed: true}; } catch { s.ecm = {mode: S.ecmMode, failed: true}; }
+    try { const f = eis().fitSpectrum(s, {n: S.ecmMode, tail: 'auto'}); s.ecm = f ? {v: f.v, mode: S.ecmMode, R_ct: f.R_ct, R_contact: f.R_contact, err: f.err} : {v: eis().FITV, mode: S.ecmMode, failed: true}; } catch { s.ecm = {v: eis().FITV, mode: S.ecmMode, failed: true}; }
     renderTable(); setTimeout(step, 0); };
   setTimeout(step, 0);
 }
@@ -319,6 +319,7 @@ function save() {
 async function restore() {
   try { const r = NQP.idb && await NQP.idb.get('drt');
     if (r && Array.isArray(r.spectra)) { const {seq: q, ...st} = r; Object.assign(S, st); seq = q || r.spectra.length;
+      for (const z of S.spectra) if (z.ecm && z.ecm.v !== eis().FITV) z.ecm = null;      // ECM comparison made with an older fitting method: redo
       if ($('#d_lam')) { $('#d_lam').value = S.lam; $('#d_x').value = S.xlog ? 'log' : 'lin'; } } } catch {}
   ready = true;
 }
