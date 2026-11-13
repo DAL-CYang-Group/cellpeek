@@ -174,8 +174,10 @@
   .rgrid { display:grid; grid-template-columns:minmax(0, var(--rl, 1fr)) minmax(0, var(--rr, 1fr)); gap:12px; padding:8px 16px 40px; align-items:start; }
   /* EIS: plots one below the other on the left, results table fixed on the right */
   .egrid { display:grid; grid-template-columns:minmax(0, 3fr) minmax(300px, 2fr); gap:12px; padding:8px 16px 40px; align-items:start; }
-  .egrid #e_plots, .egrid #d_plots { display:grid; gap:10px; } .egrid .mod .bar .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:80px; }
-  .egrid .mod .bar { flex-wrap:nowrap; } .egrid .mod .bar .opts { white-space:nowrap; flex-wrap:nowrap; font-size:13px; } .egrid .mod canvas { display:block; }
+  .egrid #e_plots, .egrid #d_plots { display:grid; grid-template-columns:minmax(0, 1fr); gap:10px; min-width:0; } .egrid .mod { min-width:0; }   /* the cards never grow wider than their column (long file names) */
+  .egrid .mod .bar .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:80px; flex:0 1 auto; max-width:100%; direction:rtl; text-align:left; }   /* a long name is cut at its start: the end (step, cycle) stays visible */
+  .egrid .mod .bar { flex-wrap:wrap; row-gap:2px; } .egrid .mod .bar .opts { white-space:nowrap; flex-wrap:nowrap; font-size:13px; } .egrid .mod canvas { display:block; }
+  .egrid #e_tab, .egrid #d_tab { overflow-x:auto; }
   .egrid #e_res, .egrid #d_res { position:sticky; top:calc(var(--toph, 120px) + 8px); max-height:calc(100vh - var(--toph, 120px) - 16px); overflow-y:auto; }
   @media (max-width: 1000px) { .egrid { grid-template-columns:minmax(0, 1fr); } .egrid #e_res, .egrid #d_res { position:static; max-height:none; order:-1; } }
   .rgrid .rwf { position:relative; }
@@ -304,14 +306,14 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.3.1&b=8"></script>
-<script src="versions.js?v=0.3.1&b=8"></script>
-<script src="data.js?v=0.3.1&b=8"></script>
-<script src="auth.js?v=0.3.1&b=8"></script>
-<script src="raman.js?v=0.3.1&b=8"></script>
-<script src="xps.js?v=0.3.1&b=8"></script>
-<script src="eis.js?v=0.3.1&b=8"></script>
-<script src="drt.js?v=0.3.1&b=8"></script>
+<script src="config.js?v=0.3.1&b=9"></script>
+<script src="versions.js?v=0.3.1&b=9"></script>
+<script src="data.js?v=0.3.1&b=9"></script>
+<script src="auth.js?v=0.3.1&b=9"></script>
+<script src="raman.js?v=0.3.1&b=9"></script>
+<script src="xps.js?v=0.3.1&b=9"></script>
+<script src="eis.js?v=0.3.1&b=9"></script>
+<script src="drt.js?v=0.3.1&b=9"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>

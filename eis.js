@@ -311,7 +311,7 @@ function build() {
   let rt; new ResizeObserver(() => { if (sec.hidden) return; clearTimeout(rt); rt = setTimeout(drawAll, 80); }).observe(sec);
 }
 const headHtml = s => { const k = scale(), u = unit(), f = good(s), poor = f && f.err > POOR;
-  return `<span class="t" title="${esc(s.name)}">${esc(s.name)}</span>
+  return `<span class="t" title="${esc(s.name)}"><bdi>${esc(s.name)}</bdi></span>
     <span class="opts">${!s.fit ? 'fitting…' : !f ? '<b style="color:#b00">could not be fitted</b>' : `R_HFI <b>${fmt(f.R_HFI * k)}</b> · R_ct <b>${fmt(f.R_ct * k)}</b> · width <b>${fmt((f.R_contact + f.R_ct) * k)}</b> ${u} · ${f.tail ? 'tail' : 'no tail'} · <span style="${poor ? 'color:#b00;font-weight:600' : ''}">error ${f.err.toFixed(2)} %</span>`}</span>
     <button type="button" class="expbtn" data-png="${s.id}">PNG</button>`; };
 function drawAll() { const rg = commonRange(); for (const s of S.spectra) { const cv = $('#cv_' + s.id); if (cv) drawNyq(cv, s, rg); } }
@@ -324,7 +324,7 @@ function hookCard(c, s) { const b = $('[data-png]', c); if (b) b.onclick = () =>
 function renderTable() {
   const k = scale(), u = unit();
   const rows = S.spectra.map(q => { const t = good(q), poor = t && t.err > POOR;
-    return `<tr data-id="${q.id}" style="cursor:pointer"><td style="max-width:230px;overflow:hidden;text-overflow:ellipsis" title="${esc(q.name)}">${esc(q.name)}</td>
+    return `<tr data-id="${q.id}" style="cursor:pointer"><td style="max-width:230px;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left" title="${esc(q.name)}"><bdi>${esc(q.name)}</bdi></td>
       <td style="text-align:right"><b>${t ? fmt(t.R_HFI * k) : q.fit ? 'failed' : '…'}</b></td><td style="text-align:right"><b>${t ? fmt(t.R_ct * k) : ''}</b></td><td style="text-align:right">${t ? fmt((t.R_contact + t.R_ct) * k) : ''}</td>
       <td>${t ? (t.tail ? 'yes' : 'no') : ''}</td>
       <td style="text-align:right;${poor ? 'color:#b00;font-weight:600' : 'color:var(--muted)'}">${t ? t.err.toFixed(2) : ''}</td>

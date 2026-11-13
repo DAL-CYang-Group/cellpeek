@@ -266,13 +266,13 @@ function build() {
 }
 function drawAll() { const ax = axes(), R = results(); for (const s of S.spectra) { const cv = $('#dcv_' + s.id); if (cv) draw(cv, s, ax, R.get(s.id)); } }
 function head(s, r) {
-  return `<span class="t" title="${esc(s.name)}">${esc(s.name)}</span><span class="opts">${!s.drt ? 'computing…' : s.drt.failed ? '<b style="color:#b00">no DRT</b>'
+  return `<span class="t" title="${esc(s.name)}"><bdi>${esc(s.name)}</bdi></span><span class="opts">${!s.drt ? 'computing…' : s.drt.failed ? '<b style="color:#b00">no DRT</b>'
     : `R_contact <b>${fmt(r.R_contact)}</b> · R_ct <b>${fmt(r.R_ct)}</b> Ω · ${s.pk.seg.length} peaks` + (r.off ? ' · <b style="color:#b00">check the range</b>' : r.adjusted ? ' · <span style="color:#d97706">range moved to match the set</span>' : '')}</span>`;
 }
 function renderTable() {
   const R = results();
   const rows = S.spectra.map(s => { const r = R.get(s.id), e = s.ecm && !s.ecm.failed && s.ecm.mode === S.ecmMode ? s.ecm : null, dv = r && e ? 100 * (r.R_ct - e.R_ct) / e.R_ct : null;
-    return `<tr data-id="${s.id}" style="cursor:pointer"><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${esc(s.name)}">${esc(s.name)}</td>
+    return `<tr data-id="${s.id}" style="cursor:pointer"><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left" title="${esc(s.name)}"><bdi>${esc(s.name)}</bdi></td>
       <td style="text-align:right">${r ? fmt(r.R_contact) : ''}</td><td style="text-align:right"><b>${r ? fmt(r.R_ct) : s.drt ? 'failed' : '…'}</b></td>
       <td style="text-align:right;color:var(--muted)">${e ? fmt(e.R_ct) : s.ecm && s.ecm.failed ? 'failed' : '…'}</td>
       <td style="text-align:right;${dv != null && Math.abs(dv) > 10 ? 'color:#b00;font-weight:600' : 'color:var(--muted)'}">${dv == null ? '' : (dv > 0 ? '+' : '') + dv.toFixed(1)}</td>
