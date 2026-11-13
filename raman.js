@@ -26,7 +26,7 @@ const nid = () => (++uid).toString(36);
 const cur = () => S.spectra.find(s => s.id === S.sel) || null;
 function newSpec(name, id) {
   return {id, name, color: SPEC_COL[S.spectra.length % SPEC_COL.length], show: true,
-    despike: {on: true, thr: 40}, bg: {method: 'arpls', lam: 1e5}, zero: {on: false, a: 700, b: 730}, shift: 0, shiftOn: false,
+    despike: {on: false, thr: 40}, bg: {method: 'none', lam: 1e5, applied: false}, zero: {on: false, mode: 'auto', a: 700, b: 730}, shift: 0, shiftOn: false,
     fit: {range: null, peaks: [], ratios: [], rule: 'manual', weight: null}};
 }
 
@@ -126,6 +126,11 @@ function arpls(y, lam, ratio = 1e-2, niter = 50) {   // Baek et al., Analyst 201
   }
   return Array.from(z);
 }
+// background is two steps: 'arpls' + applied:false = baseline only shown (dashed) on the original spectrum, λ can be chosen;
+// applied:true = baseline subtracted (projects saved before this have no flag and count as subtracted)
+const bgShown = sp => sp.bg.method === 'arpls', bgDone = sp => sp.bg.method === 'arpls' && sp.bg.applied !== false;
+const ZERO_W = 30;                              // width of the noise segment used for the zero level, cm⁻¹
+const zeroOn = sp => !!sp.zero && (sp.zero.on || sp.zero.mode === undefined);   // projects saved before the Zero row always applied their window
 const PCACHE = new Map();
 function proc(sp) {
   const key = sp.id + JSON.stringify([sp.despike, sp.bg, sp.zero, sp.shift, sp.shiftOn]);
@@ -134,10 +139,21 @@ function proc(sp) {
   const ds = sp.despike.on ? despike(d.y, +sp.despike.thr || 40) : {y: Float64Array.from(d.y), n: 0};
   const b = sp.bg, ys = Array.from(ds.y);
   const base = b.method === 'arpls' ? arpls(ys, +b.lam || 1e5) : ys.map(() => 0);
-  let y = ys.map((v, i) => v - base[i]);
+  const done = bgDone(sp);
+  let y = done ? ys.map((v, i) => v - base[i]) : ys.slice();
   const sh = sp.shiftOn ? +sp.shift || 0 : 0, x = d.x.map(v => v + sh);
-  if (b.method === 'arpls' && sp.zero) { const z = median(y.filter((v, i) => x[i] >= sp.zero.a && x[i] <= sp.zero.b)); if (isFinite(z)) { y = y.map(v => v - z); for (let i = 0; i < base.length; i++) base[i] += z; } }
-  const r = {x, raw: d.y, ds: ys, base, y, spikes: ds.n};
+  // zero level (after the background is removed): mean of a noise segment is set to 0.
+  //   auto   — the first and the last ZERO_W cm⁻¹ of the spectrum are both tried; the one with the lower mean is used
+  //   manual — the typed window
+  let zero = null;
+  if (done && zeroOn(sp)) {
+    const seg = (a, b) => { let sm = 0, n = 0; for (let i = 0; i < x.length; i++) if (x[i] >= a && x[i] <= b) { sm += y[i]; n++; } return n ? {a, b, v: sm / n} : null; };
+    if (sp.zero.mode === 'auto') { const lo = Math.min(x[0], x[x.length - 1]), hi = Math.max(x[0], x[x.length - 1]);
+      const A = seg(lo, lo + ZERO_W), B = seg(hi - ZERO_W, hi); zero = A && B ? (A.v <= B.v ? A : B) : A || B; if (zero) zero.edge = zero === A ? 'low' : 'high'; }
+    else zero = seg(Math.min(+sp.zero.a, +sp.zero.b), Math.max(+sp.zero.a, +sp.zero.b));
+    if (zero && isFinite(zero.v)) { const z = zero.v; y = y.map(v => v - z); for (let i = 0; i < base.length; i++) base[i] += z; } else zero = null;
+  }
+  const r = {x, raw: d.y, ds: ys, base, y, spikes: ds.n, zero};
   if (PCACHE.size > 200) PCACHE.delete(PCACHE.keys().next().value);
   PCACHE.set(key, r); return r;
 }
@@ -236,7 +252,7 @@ const RULES = {manual: 'Manual peaks', LE: 'LE', C: 'C', C120: 'C120', C410: 'C4
 function applyRule(sp, rule) {
   sp.fit.rule = rule;
   if (rule === 'manual') { sp.fit.weight = null; return; }
-  sp.fit.range = [315, 730]; sp.fit.weight = {a: 575, b: 610, w: 5}; sp.zero = {on: true, a: 700, b: 730};
+  sp.fit.range = [315, 730]; sp.fit.weight = {a: 575, b: 610, w: 5}; sp.zero = {on: true, mode: 'manual', a: 700, b: 730};   // §6.1: zero = 700–730 for the NMC rules (shown in the Zero row, can be changed there)
   if (!sp.shiftOn || !sp.shift) { const v = alignA1g(sp); if (v != null) { sp.shift = v; sp.shiftOn = true; } }          // §6.1: align A1g to 594 first (shift is recorded)
   sp.fit.peaks = rulePeaks(rule);
   const r = proc(sp); for (const p of sp.fit.peaks) { const i = nearestIdx(r.x, p.c); p.h = Math.max(r.y[i] * 0.6, 1e-6); }
@@ -261,6 +277,7 @@ function ticks(a, b, n) {
   const t = []; for (let v = Math.ceil(a / st) * st; v <= b + st * 1e-9; v += st) t.push(+v.toFixed(10)); return t;
 }
 const tfmt = v => Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-3) ? v.toExponential(1) : String(+v.toFixed(6));
+let EXPORTING = false;                         // PNG export: same plot (range, size, labels), without on-screen helpers (selection highlight, range band) and with all tick numbers
 function drawPlot(cv, H, o) {
   const W = cv.parentElement.clientWidth || 600, r = window.devicePixelRatio || 1;
   cv.width = W * r; cv.height = H * r; cv.style.width = W + 'px'; cv.style.height = H + 'px';
@@ -270,15 +287,16 @@ function drawPlot(cv, H, o) {
   const px = x => L + (x - x0) / (x1 - x0) * pw, py = y => T + (1 - (y - y0) / (y1 - y0)) * ph;
   g.font = '12px -apple-system, "Segoe UI", sans-serif'; g.fillStyle = '#1d2329'; g.strokeStyle = '#e6e8eb'; g.lineWidth = 1;
   g.textAlign = 'center'; g.textBaseline = 'top';
-  for (const t of ticks(x0, x1, Math.max(3, pw / 90))) { const X = Math.round(px(t)) + .5; g.beginPath(); g.moveTo(X, T); g.lineTo(X, T + ph); g.stroke(); if (X > L + 52 && X < L + pw - 52) g.fillText(tfmt(t), X, T + ph + 6); }
-  if (o.yticks !== false) { g.textAlign = 'right'; g.textBaseline = 'middle';
-    for (const t of ticks(y0, y1, Math.max(3, ph / 60))) { const Y = Math.round(py(t)) + .5; g.beginPath(); g.moveTo(L, Y); g.lineTo(L + pw, Y); g.stroke(); if (Y > T + 16 && Y < T + ph - 16) g.fillText(tfmt(t), L - 6, Y); } }
+  const xt = ticks(x0, x1, Math.max(3, pw / 90));       // no grid lines; x: numbers + short tick marks, y: no numbers (arbitrary units)
+  for (const t of xt) { const X = Math.round(px(t)) + .5; if (EXPORTING || (X > L + 52 && X < L + pw - 52)) g.fillText(tfmt(t), X, T + ph + 6); }
+  const ytw = 0;
   g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillText(o.xlabel || '', L + pw / 2, H - 6);
-  g.save(); g.translate(13, T + ph / 2); g.rotate(-Math.PI / 2); g.fillText(o.ylabel || '', 0, 0); g.restore();
+  g.save(); g.translate(Math.max(13, L - 6 - Math.ceil(ytw) - 8 - 3), T + ph / 2); g.rotate(-Math.PI / 2); g.fillText(o.ylabel || '', 0, 0); g.restore();   // same spacing as the cycling plots
   g.save(); g.beginPath(); g.rect(L, T, pw, ph); g.clip();
   for (const b of o.bands || []) { g.fillStyle = b.color; g.fillRect(px(b.a), T, px(b.b) - px(b.a), ph);
     if (b.edge) { g.strokeStyle = b.edge; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(px(b.a), T); g.lineTo(px(b.a), T + ph); g.moveTo(px(b.b), T); g.lineTo(px(b.b), T + ph); g.stroke(); g.setLineDash([]); } }
   for (const v of o.vlines || []) { g.strokeStyle = v.color; g.setLineDash([5, 4]); g.lineWidth = 1.3; g.beginPath(); g.moveTo(px(v.x), T); g.lineTo(px(v.x), T + ph); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
+  const labels = [];
   for (const s of o.series) {
     const n = s.x.length; if (!n) continue;
     if (s.fill) { g.fillStyle = s.fill; g.beginPath(); g.moveTo(px(s.x[0]), py(s.base || 0));
@@ -287,8 +305,11 @@ function drawPlot(cv, H, o) {
       for (let i = 0; i < n; i++) { g.beginPath(); g.arc(px(s.x[i]), py(s.y[i]), rr, 0, 7); g.stroke(); } }
     if (s.width !== 0 && !s.points) { g.strokeStyle = s.color; g.lineWidth = s.width || 1.5; g.setLineDash(s.dash || []);
       g.beginPath(); for (let i = 0; i < n; i++) { const X = px(s.x[i]), Y = py(s.y[i]); i ? g.lineTo(X, Y) : g.moveTo(X, Y); } g.stroke(); g.setLineDash([]); }
-    if (s.label) { g.fillStyle = s.color; g.font = (s.bold ? '600 ' : '') + '11.5px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'right';
-      g.fillText(s.label, L + pw - 6, py(s.labelY) - 4); g.font = '12px -apple-system, "Segoe UI", sans-serif'; }
+    if (s.label) { g.fillStyle = s.color; g.font = (s.bold ? '600 ' : '') + '11.5px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'center';
+      const tw = g.measureText(s.label).width, lo = L + 4 + tw / 2, hi = L + pw - 6 - tw / 2;      // label centre: at labelX if given, else at the right edge; kept inside the plot
+      const cx = hi < lo ? L + pw / 2 : Math.min(hi, Math.max(lo, s.labelX != null ? px(s.labelX) : hi)), by = py(s.labelY) + (s.labelDy != null ? s.labelDy : -4);
+      g.fillText(s.label, cx, by); labels.push({id: s.id, cx, by, x0: cx - tw / 2 - 3, x1: cx + tw / 2 + 3, y0: by - 12, y1: by + 4});
+      g.font = '12px -apple-system, "Segoe UI", sans-serif'; }
   }
   for (const m of o.marks || []) {
     const X = px(m.x), Y = py(m.y); g.fillStyle = m.color; g.font = '600 11px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'center';
@@ -298,7 +319,8 @@ function drawPlot(cv, H, o) {
   for (const z of o.drag ? [o.drag] : []) { g.fillStyle = z.color; g.fillRect(px(Math.min(z.a, z.b)), T, Math.abs(px(z.b) - px(z.a)), ph); }
   g.restore();
   g.strokeStyle = '#c9ced5'; g.strokeRect(L + .5, T + .5, pw, ph);
-  return {px, py, ix: X => x0 + (X - L) / pw * (x1 - x0), iy: Y => y0 + (1 - (Y - T) / ph) * (y1 - y0), L, T, pw, ph};
+  g.beginPath(); for (const t of xt) { const X = Math.round(px(t)) + .5; if (X > L + 1 && X < L + pw - 1) { g.moveTo(X, T + ph); g.lineTo(X, T + ph - 5); } } g.stroke();
+  return {px, py, ix: X => x0 + (X - L) / pw * (x1 - x0), iy: Y => y0 + (1 - (Y - T) / ph) * (y1 - y0), L, T, pw, ph, labels};
 }
 const extent = (arrs, pad = 0.04) => { let a = Infinity, b = -Infinity; for (const r of arrs) for (const v of r) { if (v < a) a = v; if (v > b) b = v; }
   if (!isFinite(a)) return [0, 1]; const d = (b - a) || 1; return [a - d * pad, b + d * pad]; };
@@ -360,6 +382,7 @@ function build() {
     <div id="r_msg"></div>
     <div class="rgrid" id="r_grid">
       <div class="mod rwf">
+        <div class="rsplit" id="r_split" title="Drag to make the plots narrower or wider · double-click: half and half"></div>
         <div class="bar"><span class="t">Spectra</span>
           <span class="opts">Show <select id="wf_view"><option value="corrected">corrected</option><option value="raw">raw + background</option></select>
           <label><input type="checkbox" id="wf_norm"> normalize</label> <label>offset <input type="number" id="wf_off" step="0.1" style="width:56px"></label></span>
@@ -392,6 +415,18 @@ function build() {
   }
   $('#r_undo').onclick = undo; $('#r_redo').onclick = redo;
   $('#r_hist').onclick = showHist;
+  { // divider on the right edge of the spectra card: drag = share of the width (kept in this browser)
+    const grid = $('#r_grid'), h = $('#r_split');
+    const setF = f => { if (f == null) { grid.style.removeProperty('--rl'); grid.style.removeProperty('--rr'); } else { grid.style.setProperty('--rl', f + 'fr'); grid.style.setProperty('--rr', (1 - f) + 'fr'); } drawWf(); drawFit(); };
+    try { const f = +localStorage.getItem('nqp_rsplit'); if (f >= 0.2 && f <= 0.85) setF(f); } catch {}
+    let drag = false, raf = 0;
+    h.addEventListener('pointerdown', e => { drag = true; h.classList.add('on'); h.setPointerCapture(e.pointerId); e.preventDefault(); });
+    h.addEventListener('pointermove', e => { if (!drag) return; const r = grid.getBoundingClientRect(), f = Math.min(0.85, Math.max(0.2, (e.clientX - r.left - 16 - 6) / (r.width - 32 - 12)));
+      cancelAnimationFrame(raf); raf = requestAnimationFrame(() => setF(+f.toFixed(3))); h._f = f; });
+    const end = () => { if (!drag) return; drag = false; h.classList.remove('on'); try { if (h._f) localStorage.setItem('nqp_rsplit', h._f.toFixed(3)); } catch {} };
+    h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
+    h.addEventListener('dblclick', () => { setF(null); h._f = 0; try { localStorage.removeItem('nqp_rsplit'); } catch {} });
+  }
   $('#r_export').onclick = exportAll;
   $('#wf_view').onchange = e => { S.wf.view = e.target.value; commit('Waterfall: show ' + e.target.value); };
   $('#wf_norm').onchange = e => { S.wf.norm = e.target.checked; commit(e.target.checked ? 'Waterfall: normalize' : 'Waterfall: no normalize'); };
@@ -418,7 +453,7 @@ function render() {
   $('#r_redo').title = HPOS < HIST.length - 1 ? 'Redo: ' + HIST[HPOS + 1].label + ' (Ctrl+Y)' : 'Nothing to redo';
   $('#r_hn').textContent = Math.max(0, HPOS);
   $('#r_fit').hidden = !FITOPEN; $('#ft_open').hidden = FITOPEN;
-  $('#wf_hint').innerHTML = PICK ? `<b>Click one point on each curve</b> — it is moved to ${+S.shiftTarget} cm⁻¹ (snaps to the nearest maximum). Esc to finish.` : 'Click a curve to select it · drag to zoom · double-click to reset';
+  $('#wf_hint').innerHTML = PICK ? `<b>Click one point on each curve</b> — it is moved to ${+S.shiftTarget} cm⁻¹ (snaps to the nearest maximum). Esc to finish.` : 'Click a curve to select it · double-click to reset the axes';
   $('#wf_hint').classList.toggle('hint', PICK);
   $('#wf_view').value = S.wf.view; $('#wf_norm').checked = S.wf.norm; $('#wf_off').value = S.wf.offset;
   renderList(); renderPre(); drawWf(); renderFitBar(); drawFit(); renderSide();
@@ -428,8 +463,8 @@ function renderList() {
   if (!S.spectra.length) { box.innerHTML = '<div class="empty">No spectra yet — drop .txt files (two columns: Raman shift, intensity) on the box above.</div>'; return; }
   box.innerHTML = S.spectra.map(s => `<div class="srow${s.id === S.sel ? ' on' : ''}" data-id="${s.id}">
     <input type="checkbox" ${s.show ? 'checked' : ''} title="Show in waterfall"><input type="color" value="${s.color}">
-    <span class="nm" title="Double-click to rename · file: ${esc(s.file || s.name)}">${esc(s.name)}</span><span class="ed" title="Rename">✎</span>
-    <span class="meta">${s.fit.peaks.length ? s.fit.peaks.length + ' peaks' : ''}${s.bg.method !== 'none' ? ' · bg' : ''}${s.despike.on ? ' · despiked' : ''}</span>
+    <span class="nm" title="Rest the pointer here, then click to edit the label · file: ${esc(s.file || s.name)}">${esc(s.name)}</span><span class="ed" title="Rename">✎</span>
+    <span class="meta">${s.fit.peaks.length ? s.fit.peaks.length + ' peaks' : ''}${bgDone(s) ? ' · bg removed' : bgShown(s) ? ' · bg shown' : ''}${s.despike.on ? ' · despiked' : ''}</span>
     <span class="x" title="Remove">✕</span></div>`).join('');
   box.querySelectorAll('.srow').forEach(r => { const s = S.spectra.find(q => q.id === r.dataset.id);
     r.onclick = e => { if (e.target.tagName === 'INPUT' || e.target.classList.contains('x') || e.target.classList.contains('ed')) return; select(s.id); };
@@ -439,7 +474,11 @@ function renderList() {
         if (ok && v && v !== s.name) { const old = s.name; s.file = s.file || old; s.name = v; commit(`Rename ${old} → ${v}`); } else renderList(); };
       inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') fin(true); if (e.key === 'Escape') fin(false); };
       inp.onblur = () => fin(true); };
-    r.querySelector('.nm').ondblclick = e => { e.stopPropagation(); rename(); };
+    const nm = r.querySelector('.nm'); let armT = null;                  // a quick click selects the spectrum; resting on the name first makes the click edit it
+    nm.onmouseenter = () => { armT = setTimeout(() => nm.classList.add('arm'), NAME_ARM_MS); };
+    nm.onmouseleave = () => { clearTimeout(armT); nm.classList.remove('arm'); };
+    nm.onclick = e => { if (nm.classList.contains('arm')) { e.stopPropagation(); clearTimeout(armT); rename(); } };
+    nm.ondblclick = e => { e.stopPropagation(); rename(); };
     r.querySelector('.ed').onclick = e => { e.stopPropagation(); rename(); };
     r.querySelector('[type=checkbox]').onchange = e => { s.show = e.target.checked; commit((s.show ? 'Show ' : 'Hide ') + s.name); };
     r.querySelector('[type=color]').onchange = e => { s.color = e.target.value; commit('Colour ' + s.name); };
@@ -447,34 +486,49 @@ function renderList() {
   });
 }
 function select(id) { if (S.sel === id) return; S.sel = id; ACTIVE = null; commit('Select ' + (cur() || {}).name); }
-const LAM_PRESET = {'1e5': 'NMC cathode — λ 1e5', '1e6': 'Li₂C₂ / Li plating — λ 1e6', '1e7': 'P1 air exposure — λ 1e7'};
+const NAME_ARM_MS = 350;
+const LAM_PRESET = {'1e5': 'λ 1e5', '1e6': 'λ 1e6', '1e7': 'λ 1e7'};
 function renderPre() {                          // despike and background(+zero) act on all spectra; shift is set curve by curve
   const sp = cur(), box = $('#wf_pre');
   if (!sp) { box.innerHTML = ''; return; }
-  const b = sp.bg, r = proc(sp), lamKey = Object.keys(LAM_PRESET).find(k => +k === +b.lam) || 'custom', bgOn = b.method === 'arpls';
+  const b = sp.bg, r = proc(sp), lamKey = Object.keys(LAM_PRESET).find(k => +k === +b.lam) || 'custom', bgOn = bgShown(sp), bgRem = bgDone(sp);
+  const zOn = bgRem && zeroOn(sp), zAuto = (sp.zero.mode || 'manual') === 'auto', zr = r.zero;
+  const zA = zAuto && zr ? +zr.a.toFixed(0) : sp.zero.a, zB = zAuto && zr ? +zr.b.toFixed(0) : sp.zero.b;
   const nsp = S.spectra.reduce((n, q) => n + (q.despike.on ? proc(q).spikes : 0), 0);
   box.innerHTML = `
     <div class="prow"><button type="button" id="ds_on" class="tg${sp.despike.on ? ' on' : ''}" title="Remove cosmic-ray spikes from all spectra">Despike</button>
       <label>2nd difference &gt; <input type="number" id="ds_thr" value="${sp.despike.thr}" min="3" step="1" style="width:60px"> × MAD</label>
       <span class="gmuted">${sp.despike.on ? nsp + ' spike' + (nsp === 1 ? '' : 's') + ' removed' : ''}</span></div>
-    <div class="prow"><button type="button" id="bg_on" class="tg${bgOn ? ' on' : ''}" title="arPLS baseline, then zero level, for all spectra">Background</button>
-      <select id="bg_pre">${Object.entries(LAM_PRESET).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}<option value="custom">custom λ</option></select>
-      <label>λ <input type="text" id="bg_l" value="${(+b.lam).toExponential(0).replace('+', '')}" style="width:60px"></label>
-      <label>zero = median of <input type="number" id="z_a" value="${sp.zero.a}" style="width:66px"> – <input type="number" id="z_b" value="${sp.zero.b}" style="width:66px"> cm⁻¹</label></div>
+    <div class="prow"><button type="button" id="bg_on" class="tg${bgOn ? ' on' : ''}" title="Step 1: show the arPLS baseline (dashed) on the original spectra and choose λ. Click again to switch the background off.">Background</button>
+      ${bgOn ? `<select id="bg_pre" ${bgRem ? 'disabled' : ''}>${Object.entries(LAM_PRESET).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}<option value="custom">custom λ</option></select>
+      <label>λ <input type="text" id="bg_l" value="${(+b.lam).toExponential(0).replace('+', '')}" style="width:60px" ${bgRem ? 'disabled' : ''}></label>
+      <button type="button" id="bg_go" class="${bgRem ? '' : 'primary'}" title="${bgRem ? 'Back to step 1: original spectra with the dashed baseline, to change λ' : 'Step 2: subtract the dashed baseline from all spectra'}">${bgRem ? 'Show background again' : 'Remove background'}</button>` : '<span class="gmuted">shows the baseline first, then removes it</span>'}</div>
+    <div class="prow"><button type="button" id="z_on" class="tg${zOn ? ' on' : ''}" ${bgRem ? '' : 'disabled'} title="Set the mean of a noise segment to 0 (after the background is removed)">Zero</button>
+      ${!bgRem ? '<span class="gmuted">after the background is removed</span>' : `<select id="z_mode"><option value="auto">auto: lower of the two ends</option><option value="manual">manual window</option></select>
+      <label>mean of <input type="number" id="z_a" value="${zA}" style="width:66px" ${zAuto ? 'disabled' : ''}> – <input type="number" id="z_b" value="${zB}" style="width:66px" ${zAuto ? 'disabled' : ''}> cm⁻¹ = 0</label>`}</div>
     <div class="prow"><button type="button" id="sh_pick" class="tg${PICK ? ' pick' : S.spectra.some(q => q.shiftOn && q.shift) ? ' on' : ''}" title="Click, then click one point on each curve in the plot">${PICK ? 'Shift: picking…' : 'Shift'}</button>
       <label>click a point on each curve → move it to <input type="number" id="sh_t" value="${+S.shiftTarget}" step="1" style="width:66px"> cm⁻¹</label>
       <span class="gmuted">${sp.shiftOn && sp.shift ? `<span style="color:${sp.color}">■</span> ${(sp.shift > 0 ? '+' : '') + (+(+sp.shift).toFixed(1))} cm⁻¹ <a href="#" id="sh_clr">reset</a>` : ''}</span></div>`;
-  $('#bg_pre').value = lamKey;
+  if (bgOn) $('#bg_pre').value = lamKey;
   const all = (fn, lab) => e => { for (const q of S.spectra) fn(q, e.target); PCACHE.clear(); for (const q of S.spectra) if (q.fit.peaks.length) runFit(q, {iters: 60}); commit(lab(e.target)); };
   const live = fn => e => { for (const q of S.spectra) fn(q, e.target); PCACHE.clear(); drawWf(); drawFit(); renderSide(); };
   const dsNew = !sp.despike.on;
   $('#ds_on').onclick = all(q => q.despike.on = dsNew, () => 'Despike ' + (dsNew ? 'on' : 'off'));
   $('#ds_thr').oninput = live((q, t) => q.despike.thr = +t.value);
   $('#ds_thr').onchange = all((q, t) => q.despike.thr = +t.value, t => `Despike ${t.value}×MAD`);
-  $('#bg_on').onclick = all(q => q.bg.method = bgOn ? 'none' : 'arpls', () => 'Background ' + (bgOn ? 'off' : 'on'));
-  $('#bg_pre').onchange = all((q, t) => { if (t.value !== 'custom') q.bg.lam = +t.value; }, t => `arPLS λ ${t.value}`);
-  $('#bg_l').onchange = all((q, t) => q.bg.lam = +t.value || 1e5, t => `arPLS λ ${t.value}`);
-  for (const k of ['a', 'b']) { $('#z_' + k).oninput = live((q, t) => q.zero[k] = +t.value); $('#z_' + k).onchange = all((q, t) => q.zero[k] = +t.value, () => `Zero window ${sp.zero.a}–${sp.zero.b}`); }
+  $('#bg_on').onclick = all(q => { q.bg.method = bgOn ? 'none' : 'arpls'; q.bg.applied = false; }, () => 'Background ' + (bgOn ? 'off' : 'shown'));
+  if (bgOn) {
+    $('#bg_pre').onchange = all((q, t) => { if (t.value !== 'custom') q.bg.lam = +t.value; }, t => `arPLS λ ${t.value}`);
+    $('#bg_l').onchange = all((q, t) => q.bg.lam = +t.value || 1e5, t => `arPLS λ ${t.value}`);
+    $('#bg_go').onclick = all(q => { q.bg.applied = !bgRem; if (!bgRem) { q.zero.on = true; q.zero.mode = 'auto'; } }, () => bgRem ? 'Background shown again' : 'Background removed, zero auto');   // removing the background switches Zero on in auto mode
+  }
+  if (bgRem) {
+    $('#z_on').onclick = all(q => { q.zero.on = !zOn; if (q.zero.mode === undefined) q.zero.mode = 'manual'; }, () => 'Zero ' + (zOn ? 'off' : 'on'));
+    $('#z_mode').value = zAuto ? 'auto' : 'manual';
+    $('#z_mode').onchange = all((q, t) => { if (t.value === 'manual' && (q.zero.mode || 'manual') === 'auto') { const z = proc(q).zero; if (z) { q.zero.a = +z.a.toFixed(0); q.zero.b = +z.b.toFixed(0); } }   // manual starts from the window auto chose
+      q.zero.mode = t.value; q.zero.on = true; }, t => 'Zero ' + t.value);
+    for (const k of ['a', 'b']) { $('#z_' + k).oninput = live((q, t) => q.zero[k] = +t.value); $('#z_' + k).onchange = all((q, t) => q.zero[k] = +t.value, () => `Zero window ${sp.zero.a}–${sp.zero.b}`); }
+  }
   $('#sh_t').onchange = e => { S.shiftTarget = +e.target.value || 0; commit('Shift target ' + S.shiftTarget + ' cm⁻¹'); };
   $('#sh_pick').onclick = () => { PICK = !PICK; render(); };
   if ($('#sh_clr')) $('#sh_clr').onclick = e => { e.preventDefault(); sp.shift = 0; sp.shiftOn = false; PCACHE.clear(); runFit(sp, {iters: 60}); commit(`${sp.name}: shift reset`); };
@@ -485,7 +539,7 @@ let WF = null, wfDrag = null;
 function wfCurves() {
   const shown = S.spectra.filter(s => s.show && DATA[s.id]), N = shown.length, out = [];
   shown.forEach((s, k) => {
-    const r = proc(s), raw = S.wf.view === 'raw', y = raw ? r.ds : r.y;
+    const r = proc(s), raw = S.wf.view === 'raw' || (bgShown(s) && !bgDone(s)), y = raw ? r.ds : r.y;
     let sc = 1; if (S.wf.norm) { let mx = 0, mn = Infinity; for (const v of y) { if (v > mx) mx = v; if (v < mn) mn = v; } sc = 1 / ((mx - (raw ? mn : 0)) || 1); }
     const sub = raw && S.wf.norm ? Math.min(...y) : 0, off = (N - 1 - k) * S.wf.offset * (S.wf.norm ? 1 : 1);
     out.push({s, x: r.x, y: y.map(v => (v - sub) * sc + off), base: raw && s.bg.method !== 'none' ? r.base.map(v => (v - sub) * sc + off) : null, off});
@@ -498,24 +552,37 @@ function drawWf() {
   const xr = xRange();
   const vis = C.map(c => c.y.filter((v, i) => c.x[i] >= xr[0] && c.x[i] <= xr[1]));
   const series = [];
-  for (const c of C) { const on = c.s.id === S.sel;
-    series.push({x: c.x, y: c.y, color: c.s.color, width: on ? 2.4 : 1.1, label: c.s.name, labelY: c.y[c.y.length - 1], bold: on});
+  for (const c of C) { const on = c.s.id === S.sel && !EXPORTING;
+    const lab = S.wf.lab, lx = lab ? xr[0] + lab.fx * (xr[1] - xr[0]) : null;       // every label sits at the same place relative to its own curve
+    series.push({x: c.x, y: c.y, color: c.s.color, width: on ? 2.4 : 1.1, label: c.s.name, id: c.s.id, bold: on,
+      labelX: lx, labelY: lab ? c.y[nearestIdx(c.x, lx)] : c.y[c.y.length - 1], labelDy: lab ? lab.dy : null});
     if (c.base) series.push({x: c.x, y: c.base, color: c.s.color, width: 1, dash: [5, 4]}); }
   const sel = C.find(c => c.s.id === S.sel), fr = sel && sel.s.fit.range;
   const yr = fill(LIMS.wf, C.length ? extent(vis, 0.06) : [0, 1]);
   WF = drawPlot(cv, 380, {xr, yr, series, xlabel: 'Raman shift (cm⁻¹)', ylabel: 'Intensity (a.u.)',
-    bands: fr && FITOPEN ? [{a: fr[0], b: fr[1], color: 'rgba(255,200,60,.10)'}] : [], vlines: PICK ? [{x: +S.shiftTarget, color: '#d62728'}] : [],
-    drag: wfDrag && wfDrag.moved ? {a: wfDrag.a, b: wfDrag.b, color: 'rgba(31,95,191,.12)'} : null});
+    bands: fr && FITOPEN && !EXPORTING ? [{a: fr[0], b: fr[1], color: 'rgba(255,200,60,.10)'}] : [], vlines: PICK && !EXPORTING ? [{x: +S.shiftTarget, color: '#d62728'}] : [],
+    drag: null});
   axisUI(cv, WF, 'wf', xr, yr);
   WF.curves = C;
 }
 function wfEvents() {
   const cv = $('#wf_cv');
-  cv.addEventListener('pointerdown', e => { if (!WF) return; const X = e.offsetX; wfDrag = {a: WF.ix(X), b: WF.ix(X), X, moved: false}; cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener('pointermove', e => { if (!wfDrag) return; wfDrag.b = WF.ix(e.offsetX); if (Math.abs(e.offsetX - wfDrag.X) > 4) wfDrag.moved = true; drawWf(); });
+  const labAt = e => WF && !PICK ? (WF.labels || []).find(b => e.offsetX >= b.x0 && e.offsetX <= b.x1 && e.offsetY >= b.y0 && e.offsetY <= b.y1) : null;
+  cv.addEventListener('pointerdown', e => { if (!WF) return; const X = e.offsetX, lb = labAt(e);
+    wfDrag = lb ? {label: lb, gx: X - lb.cx, gy: e.offsetY - lb.by, X, Y: e.offsetY, moved: false} : {a: WF.ix(X), b: WF.ix(X), X, moved: false};
+    cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', e => {
+    if (!wfDrag) { cv.style.cursor = labAt(e) ? 'move' : ''; return; }
+    if (Math.abs(e.offsetX - wfDrag.X) > 4 || (wfDrag.label && Math.abs(e.offsetY - wfDrag.Y) > 4)) wfDrag.moved = true;   // no drag-zoom: a drag is simply not a click
+    if (wfDrag.label && wfDrag.moved) {          // drag a curve label: all labels move together
+      const c = WF.curves.find(q => q.s.id === wfDrag.label.id); if (!c) return;
+      const fx = Math.min(1, Math.max(0, (e.offsetX - wfDrag.gx - WF.L) / WF.pw)), xv = WF.ix(WF.L + fx * WF.pw);
+      S.wf.lab = {fx: +fx.toFixed(4), dy: Math.round(e.offsetY - wfDrag.gy - WF.py(c.y[nearestIdx(c.x, xv)]))};
+      drawWf(); cv.style.cursor = 'move';
+    } });
   cv.addEventListener('pointerup', e => {
     const d = wfDrag; wfDrag = null; if (!d) return;
-    if (d.moved) { LIMS.x = [Math.min(d.a, d.b), Math.max(d.a, d.b)]; redrawBoth(); return; }
+    if (d.moved) { if (d.label) commit('Move curve labels'); return; }
     // click: nearest curve at this x
     const x = WF.ix(e.offsetX); let best = null, bd = 1e9;
     for (const c of WF.curves) { const i = nearestIdx(c.x, x); const dy = Math.abs(WF.py(c.y[i]) - e.offsetY); if (dy < bd) { bd = dy; best = c; } }
@@ -558,14 +625,14 @@ function drawFit() {
   if (fr && P.length) {
     const xs = []; const st = (fr[1] - fr[0]) / 600; for (let x = fr[0]; x <= fr[1] + st / 2; x += st) xs.push(x);
     P.forEach((p, k) => { const col = p.color || PEAK_COL[k % PEAK_COL.length], y = xs.map(x => pv(x, p));
-      series.push({x: xs, y, color: col, width: 1, fill: hexA(col, p.id === ACTIVE ? .42 : .28)});
-      marks.push({x: p.c, y: p.h, color: col, text: p.c.toFixed(0), on: p.id === ACTIVE}); });
+      series.push({x: xs, y, color: col, width: 1, fill: hexA(col, p.id === ACTIVE && !EXPORTING ? .42 : .28)});
+      marks.push({x: p.c, y: p.h, color: col, text: p.c.toFixed(0), on: p.id === ACTIVE && !EXPORTING}); });
   }
   series.push({x: vi, y: vy, color: '#8a9099', points: 2.6});
   if (fr && P.length) { const xs = series[0].x; series.push({x: xs, y: xs.map(x => P.reduce((s, p) => s + pv(x, p), 0)), color: '#111', width: 1.6}); }
   let yr = extent([vy, ...series.filter(s => s.fill).map(s => s.y)], 0.05); yr = fill(LIMS.fit, [Math.min(yr[0], 0 - (yr[1] - yr[0]) * .03), yr[1] + (yr[1] - yr[0]) * .06]);
   const bands = [];
-  if (fr) bands.push({a: fr[0], b: fr[1], color: mode() === 'range' ? 'rgba(255,190,40,.18)' : 'rgba(255,200,60,.09)', edge: '#e0a800'});
+  if (fr && !EXPORTING) bands.push({a: fr[0], b: fr[1], color: mode() === 'range' ? 'rgba(255,190,40,.18)' : 'rgba(255,200,60,.09)', edge: '#e0a800'});
   FT = drawPlot(cv, 380, {xr, yr, series, marks, bands, xlabel: 'Raman shift (cm⁻¹)', ylabel: 'Intensity (a.u.)',
     drag: ftDrag && ftDrag.kind !== 'peak' && ftDrag.moved ? {a: ftDrag.a, b: ftDrag.b, color: ftDrag.kind === 'range' ? 'rgba(255,190,40,.3)' : 'rgba(31,95,191,.12)'} : null});
   axisUI(cv, FT, 'fit', xr, yr);
@@ -588,7 +655,8 @@ function fitEvents() {
     const fr = sp.fit.range, ei = mode() === 'fit' && fr ? [0, 1].find(i => Math.abs(FT.px(fr[i]) - e.offsetX) < 6) : undefined;
     if (p) { ACTIVE = p.id; ftDrag = {kind: 'peak', p}; }
     else if (ei !== undefined) ftDrag = {kind: 'edge', i: ei};
-    else ftDrag = {kind: mode() === 'range' ? 'range' : 'zoom', a: FT.ix(e.offsetX), b: FT.ix(e.offsetX), X: e.offsetX, moved: false};
+    else if (mode() === 'range') ftDrag = {kind: 'range', a: FT.ix(e.offsetX), b: FT.ix(e.offsetX), X: e.offsetX, moved: false};
+    else return;                                  // no drag-zoom
     cv.setPointerCapture(e.pointerId);
   });
   cv.addEventListener('pointermove', e => {
@@ -606,7 +674,6 @@ function fitEvents() {
     if (!d.moved) { drawFit(); return; }
     const a = Math.min(d.a, d.b), b = Math.max(d.a, d.b);
     if (d.kind === 'range') { sp.fit.range = [a, b]; runFit(sp, {iters: 150}); commit(`${sp.name}: fitting range ${a.toFixed(0)}–${b.toFixed(0)} cm⁻¹`); }
-    else { LIMS.x = [a, b]; redrawBoth(); }
   });
   cv.addEventListener('dblclick', e => {
     const sp = cur(); if (!sp) return;
@@ -739,7 +806,7 @@ function exportFiles() {
   for (const sp of S.spectra) {
     const r = proc(sp); if (!r) continue; const base = sp.name.replace(/[\\/:*?"<>|]/g, '_');
     files.push([base + '_corrected.txt', r.x.map((x, i) => num(x) + '\t' + num(r.y[i])).join('\n') + '\n']);
-    if (sp.bg.method !== 'none' || sp.despike.on)
+    if (bgShown(sp) || sp.despike.on)
       files.push([base + '_background.txt', r.x.map((x, i) => [x, r.raw[i], r.ds[i], r.base[i], r.y[i]].map(num).join('\t')).join('\n') + '\n']);
     if (sp.fit.range && sp.fit.peaks.length) {
       const P = sp.fit.peaks, {x, y} = inRange(sp), st = fitStats(sp), tot = P.reduce((s, p) => s + area(p), 0);
@@ -751,8 +818,8 @@ function exportFiles() {
       lines.push('', 'R2\t' + num(st.r2), 'range\t' + num(sp.fit.range[0]) + '\t' + num(sp.fit.range[1]));
       for (const q of sp.fit.ratios) lines.push(ratioName(sp, q) + '\t' + num(ratioVal(sp, q)));
       lines.push('', 'rule\t' + sp.fit.rule, 'weight\t' + (sp.fit.weight ? `x${sp.fit.weight.w} in ${sp.fit.weight.a}-${sp.fit.weight.b}` : 'none'),
-        'despike\t' + (sp.despike.on ? sp.despike.thr + ' x MAD (2nd difference)' : 'off'), 'background\t' + (sp.bg.method === 'arpls' ? 'arPLS lambda ' + sp.bg.lam : 'none'),
-        'zero\t' + (sp.bg.method === 'arpls' ? `median ${sp.zero.a}-${sp.zero.b}` : 'off'), 'shift\t' + (sp.shiftOn ? sp.shift : 'off'));
+        'despike\t' + (sp.despike.on ? sp.despike.thr + ' x MAD (2nd difference)' : 'off'), 'background\t' + (bgDone(sp) ? 'arPLS lambda ' + sp.bg.lam : bgShown(sp) ? 'arPLS lambda ' + sp.bg.lam + ' (shown only, not subtracted)' : 'none'),
+        'zero\t' + (r.zero ? `mean ${+r.zero.a.toFixed(1)}-${+r.zero.b.toFixed(1)} (${sp.zero.mode === 'auto' ? 'auto, ' + r.zero.edge + ' end' : 'manual'})` : 'off'), 'shift\t' + (sp.shiftOn ? sp.shift : 'off'));
       files.push([base + '_peaks.txt', lines.join('\n') + '\n']);
     }
   }
@@ -773,10 +840,13 @@ async function exportAll() {
   if (window.NQP && NQP.log) NQP.log('raman_export', {n: files.length});
 }
 function savePng(which) {
-  const cv = $(which === 'wf' ? '#wf_cv' : '#ft_cv'), sp = cur();
-  const c2 = document.createElement('canvas'); c2.width = cv.width; c2.height = cv.height; const g = c2.getContext('2d');
-  g.fillStyle = '#fff'; g.fillRect(0, 0, c2.width, c2.height); g.drawImage(cv, 0, 0);
+  const cv = $(which === 'wf' ? '#wf_cv' : '#ft_cv'), sp = cur(), redraw = which === 'wf' ? drawWf : drawFit;
+  EXPORTING = true; try { redraw(); } finally { EXPORTING = false; }      // the PNG is the plot as it is on screen: same range, same proportions, same labels and label positions
+  const F = which === 'wf' ? WF : FT, cut = F ? Math.max(0, Math.round((F.L - 36) * (cv.width / (parseFloat(cv.style.width) || cv.width)))) : 0;   // empty left margin (room for the axis-end boxes on screen)
+  const c2 = document.createElement('canvas'); c2.width = cv.width - cut; c2.height = cv.height; const g = c2.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c2.width, c2.height); g.drawImage(cv, -cut, 0);
   const a = document.createElement('a'); a.href = c2.toDataURL('image/png'); a.download = (which === 'wf' ? 'raman_waterfall' : 'raman_fit_' + (sp ? sp.name : '')) + '.png'; a.click();
+  redraw();
 }
 
 // ---------------- start ----------------

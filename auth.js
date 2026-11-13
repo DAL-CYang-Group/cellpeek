@@ -125,7 +125,7 @@ function approved(s) {
   $('a', who).onclick = ev => { ev.preventDefault(); logout(false); };
   $('#fbbtn').hidden = false;
   if (s.notice) { const b = $('#banner'); b.hidden = false; b.insertAdjacentHTML('beforeend', ' ' + esc(s.notice)); }
-  NQP.log('open', {ua: navigator.userAgent.slice(0, 160)});
+  NQP.logLeftover(); NQP.log('open', {});
   dataStep();
 }
 
@@ -204,22 +204,54 @@ async function logout(silent) {
   location.reload();
 }
 
-// ---------- usage log (batched) ----------
-const queue = [], errs = [];
+// ---------- usage log: one row per stretch of work ----------
+// Everything done in one stretch (cells loaded, plots, exports, errors …) is collected into a single 'session' entry.
+// It is sent when the page is closed, or after LOG_IDLE without any activity; a stretch that could not be sent
+// (crash, computer switched off) is kept in this browser and sent the next time the page opens.
+const LOG_IDLE = 10 * 60000, errs = [];
+let seg = null, segT = null;
+const segNew = t => ({t0: t, t1: t, n: {}, cells: [], plots: [], exports: [], errors: [], folder: ''});
+const add = (arr, v, max) => { if (v != null && v !== '' && !arr.includes(v) && arr.length < max) arr.push(v); };
 NQP.log = (event, detail) => {
   if (!C.APPS_SCRIPT_URL || !USER) return;
-  queue.push({t: new Date().toISOString(), event, detail: typeof detail === 'string' ? detail : JSON.stringify(detail || {})});
-  if (event === 'error') errs.push(queue[queue.length - 1]), errs.length > 20 && errs.shift();
-  if (queue.length >= 20) flush();
+  const t = new Date().toISOString(), d = detail && typeof detail === 'object' ? detail : {};
+  if (event === 'error') { errs.push({t, event, detail: String(detail)}); errs.length > 20 && errs.shift(); }
+  if (!seg) seg = segNew(t);
+  seg.t1 = t; seg.n[event] = (seg.n[event] || 0) + 1;
+  if (event === 'cell') add(seg.cells, d.bc, 300);
+  else if (event === 'plot') { (d.cells || []).forEach(c => add(seg.cells, c, 300)); (d.modules || []).forEach(m => add(seg.plots, m, 20)); }
+  else if (event === 'export') add(seg.exports, d.name, 30);
+  else if (event === 'folder') seg.folder = d.name || seg.folder;
+  else if (event === 'error') add(seg.errors, String(detail).slice(0, 200), 8);
+  LS.set('nqp_seg', seg);
+  clearTimeout(segT); segT = setTimeout(flush, LOG_IDLE);
 };
-function flush(beacon) {
-  if (!queue.length || !USER) return;
-  const events = queue.splice(0, 50);
+function segEvent(g) {
+  const min = Math.round((new Date(g.t1) - new Date(g.t0)) / 60000), d = {to: g.t1, minutes: min};
+  if (g.folder) d.folder = g.folder;
+  if (g.cells.length) d.cells = g.cells;
+  if (g.plots.length) d.plots = g.plots;
+  if (g.exports.length) d.exports = g.exports;
+  for (const k of ['raman_load', 'raman_export']) if (g.n[k]) d[k] = g.n[k];
+  if (g.errors.length) d.errors = g.errors;
+  return {t: g.t0, event: 'session', detail: JSON.stringify(d)};
+}
+function send(events, beacon) {
   const body = JSON.stringify({action: 'log', device_id: deviceId(), token: auth().token, version: C.APP_VERSION, ip: IP, events});
   fetch(C.APPS_SCRIPT_URL, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body, keepalive: !!beacon}).catch(() => {});
 }
-setInterval(flush, 30000);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(true); });
+function flush(beacon) {
+  clearTimeout(segT);
+  if (!seg || !USER) return;
+  const g = seg; seg = null; LS.set('nqp_seg', null);
+  send([segEvent(g)], beacon);
+}
+NQP.logLeftover = () => {                       // a stretch left over from last time (never sent): send it before a new one starts
+  const g = LS.get('nqp_seg'); if (!g || !g.t0 || !g.n || seg) return;
+  if (Date.now() - new Date(g.t1) < LOG_IDLE) { seg = g; return; }   // still the same stretch (e.g. after a crash and reopen): carry on with it
+  LS.set('nqp_seg', null); if (USER) send([segEvent(g)]);
+};
+window.addEventListener('pagehide', () => flush(true));
 window.addEventListener('error', e => NQP.log('error', String(e.message || e.error).slice(0, 300)));
 window.addEventListener('unhandledrejection', e => NQP.log('error', String(e.reason && e.reason.message || e.reason).slice(0, 300)));
 
