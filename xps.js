@@ -44,7 +44,7 @@ function autoRange(sp) {                        // keeps the fitting range on th
 }
 function newSpec(name, id) {
   return {id, name, color: SPEC_COL[S.spectra.length % SPEC_COL.length], show: true,
-    despike: {on: false, thr: 40}, bg: {method: 'none', kind: 'shirley', navg: 3, a: null, b: null, applied: false}, zero: {on: false, mode: 'auto', a: 0, b: 0}, shift: 0, shiftOn: false,
+    despike: {on: false, thr: 40}, bg: {method: 'none', kind: 'shirley', navg: 3, a: null, b: null, cuts: [], applied: false}, zero: {on: false, mode: 'auto', a: 0, b: 0}, shift: 0, shiftOn: false,
     fit: {range: null, peaks: [], ratios: [], rule: 'manual', weight: null}};
 }
 
@@ -152,22 +152,29 @@ function solve(A, b) {                         // Gaussian elimination, partial 
 //   linear  — straight line between the two end levels
 //   shirley — iterative Shirley: at each energy the background rises in proportion to the peak area on the low-binding-energy side
 // Outside the window the background equals the data, so the corrected spectrum is 0 there.
-function background(y, kind, i0, i1, navg) {
-  const n = y.length, base = Array.from(y); if (i1 - i0 < 3) return base;
-  const k = Math.max(1, Math.min(navg | 0 || 1, Math.floor((i1 - i0) / 4) || 1));
-  let ya = 0, yb = 0; for (let i = 0; i < k; i++) { ya += y[i0 + i]; yb += y[i1 - i]; } ya /= k; yb /= k;
-  const m = i1 - i0 + 1, B = new Float64Array(m);
-  for (let j = 0; j < m; j++) B[j] = ya + (yb - ya) * j / (m - 1);
-  if (kind === 'shirley') {
-    const cum = new Float64Array(m);
-    for (let it = 0; it < 60; it++) {
-      cum[0] = 0; for (let j = 1; j < m; j++) cum[j] = cum[j - 1] + ((y[i0 + j] - B[j]) + (y[i0 + j - 1] - B[j - 1])) / 2;   // equal steps assumed (ratio only)
-      const tot = cum[m - 1]; if (!(Math.abs(tot) > 1e-300)) break;
-      let dmax = 0; for (let j = 0; j < m; j++) { const v = ya + (yb - ya) * cum[j] / tot; dmax = Math.max(dmax, Math.abs(v - B[j])); B[j] = v; }
-      if (dmax < 1e-6 * (Math.abs(yb - ya) + 1e-300)) break;
+// cuts = indices inside the window where the background is split: every part between two neighbouring nodes gets its own
+// background (as separate regions in CasaXPS), and the parts join at the nodes. The level at a node is the mean of navg points
+// (inward from the two ends of the window, centred on a cut).
+function background(y, kind, i0, i1, navg, cuts) {
+  const base = Array.from(y); if (i1 - i0 < 3) return base;
+  const nodes = [i0, ...(cuts || []).filter(c => c > i0 + 2 && c < i1 - 2).sort((a, b) => a - b), i1].filter((c, k, A) => !k || c - A[k - 1] > 2);
+  if (nodes[nodes.length - 1] !== i1) nodes[nodes.length - 1] = i1;
+  const k = Math.max(1, Math.min(navg | 0 || 1, Math.floor((i1 - i0) / 4) || 1)), mean = (a, b) => { let t = 0; for (let i = a; i <= b; i++) t += y[i]; return t / (b - a + 1); };
+  const level = nodes.map((c, j) => j === 0 ? mean(i0, i0 + k - 1) : j === nodes.length - 1 ? mean(i1 - k + 1, i1) : mean(Math.max(i0, c - (k >> 1)), Math.min(i1, c + (k >> 1))));
+  for (let s = 0; s + 1 < nodes.length; s++) {
+    const a = nodes[s], b = nodes[s + 1], ya = level[s], yb = level[s + 1], m = b - a + 1, B = new Float64Array(m);
+    for (let j = 0; j < m; j++) B[j] = ya + (yb - ya) * j / (m - 1);
+    if (kind === 'shirley') {
+      const cum = new Float64Array(m);
+      for (let it = 0; it < 60; it++) {
+        cum[0] = 0; for (let j = 1; j < m; j++) cum[j] = cum[j - 1] + ((y[a + j] - B[j]) + (y[a + j - 1] - B[j - 1])) / 2;   // equal steps assumed (ratio only)
+        const tot = cum[m - 1]; if (!(Math.abs(tot) > 1e-300)) break;
+        let dmax = 0; for (let j = 0; j < m; j++) { const v = ya + (yb - ya) * cum[j] / tot; dmax = Math.max(dmax, Math.abs(v - B[j])); B[j] = v; }
+        if (dmax < 1e-6 * (Math.abs(yb - ya) + 1e-300)) break;
+      }
     }
+    for (let j = 0; j < m; j++) base[a + j] = B[j];
   }
-  for (let j = 0; j < m; j++) base[i0 + j] = B[j];
   return base;
 }
 // background is two steps: method 'on' + applied:false = background only shown (dashed) on the original spectrum, type and window can be chosen;
@@ -186,7 +193,8 @@ function proc(sp) {
   let i0 = 0, i1 = ys.length - 1;
   if (b.a != null && b.b != null && b.a !== '' && b.b !== '' && isFinite(+b.a) && isFinite(+b.b) && +b.a !== +b.b) { const lo = Math.min(+b.a, +b.b) - sh0, hi = Math.max(+b.a, +b.b) - sh0;
     while (i0 < i1 && d.x[i0] < lo) i0++; while (i1 > i0 && d.x[i1] > hi) i1--; }
-  const base = b.method === 'on' ? background(ys, b.kind || 'shirley', i0, i1, +b.navg || 1) : ys.map(() => 0);
+  const cuts = (b.cuts || []).map(e => nearestIdx(d.x, +e - sh0));                  // split energies are charge-corrected ones too
+  const base = b.method === 'on' ? background(ys, b.kind || 'shirley', i0, i1, +b.navg || 1, cuts) : ys.map(() => 0);
   // The background stays in the plots: the spectra are shown as measured, with the background as a dashed line and the peaks standing on it.
   // The peaks are fitted to y = data − background.
   const done = false;
@@ -305,7 +313,7 @@ function runFit(sp, opt = {}) {
 //       Energies are for charge-corrected spectra (C 1s at 284.8 eV), so the charge correction is switched on first when it is not yet.
 //       lim = [low, high] for centre (eV) and width (eV); Ni 3p1/2 is tied to Ni 3p3/2 (splitting, area ratio 1:2, same width).
 const RULES = {manual: 'Manual peaks', m3p: 'NMC 3p region: Mn 3p · Li 1s · Co 3p · Ni 3p'};
-const M3P = {range: [45, 80], peaks: [
+const M3P = {range: [45, 80], cuts: [52.0, 57.5, 64.0], top: [75, 80], peaks: [
   {key: 'Mn', name: 'Mn 3p',         c: 49.5, w: 2.6, lim: {c: [48.5, 50.6], w: [1.5, 4.0]}, color: '#d62728'},
   {key: 'Li', name: 'Li 1s',         c: 54.0, w: 2.2, lim: {c: [53.0, 55.3], w: [1.2, 3.5]}, color: '#e377c2'},
   {key: 'Co', name: 'Co 3p',         c: 60.8, w: 2.8, lim: {c: [59.6, 62.0], w: [1.5, 4.5]}, color: '#ff7f0e'},
@@ -321,8 +329,12 @@ function applyRule(sp, rule) {
   if (!S.spectra.some(q => q.shiftOn && q.shift)) applyCharge(true);                      // preset energies are charge-corrected ones
   const sh = sp.shiftOn ? +sp.shift || 0 : 0, lo = d.x[0] + sh, hi = d.x[d.x.length - 1] + sh;
   if (hi < 56 || lo > 66) { sp.fit.rule = 'manual'; return 'This module is for the 45–80 eV region; the selected spectrum does not cover it.'; }
-  const a = Math.max(lo, M3P.range[0]), b = Math.min(hi, M3P.range[1]);
-  sp.fit.range = [a, b]; sp.fit.auto = false; sp.bg = {...sp.bg, method: 'on', kind: 'shirley', navg: 3, a: +a.toFixed(2), b: +b.toFixed(2), applied: false};
+  // lowest point of the lightly smoothed data between two energies (corrected scale): where a region of the background ends
+  const valley = (e0, e1) => { let k = -1, kv = Infinity; for (let i = 2; i < d.x.length - 2; i++) { const e = d.x[i] + sh; if (e < e0 || e > e1) continue;
+    const v = (d.y[i - 2] + d.y[i - 1] + d.y[i] + d.y[i + 1] + d.y[i + 2]) / 5; if (v < kv) { kv = v; k = i; } } return k < 0 ? null : +(d.x[k] + sh).toFixed(2); };
+  const a = Math.max(lo, M3P.range[0]), b = Math.min(hi, valley(M3P.top[0], M3P.top[1]) ?? M3P.range[1]);
+  const cuts = M3P.cuts.map(c => valley(c - 1, c + 1) ?? c).filter(c => c > a + 1 && c < b - 1);      // one background for each group of peaks: Mn 3p | Li 1s | Co 3p | Ni 3p
+  sp.fit.range = [a, b]; sp.fit.auto = false; sp.bg = {...sp.bg, method: 'on', kind: 'shirley', navg: 3, a: +a.toFixed(2), b: +b.toFixed(2), cuts, applied: false};
   PCACHE.clear(); const r = proc(sp), ids = {};
   for (const t of M3P.peaks) ids[t.key] = nid();
   sp.fit.peaks = M3P.peaks.filter(t => t.link || (t.c > a && t.c < b)).map(t => { const i = t.link ? 0 : nearestIdx(r.x, t.c);
@@ -593,7 +605,8 @@ function renderPre() {                          // the background acts on the sp
     <div class="prow"><button type="button" id="xbg_on" class="tg${bgOn ? ' on' : ''}" title="Background under the peaks, drawn as a dashed line. It stays in the plots; the peaks are fitted to the data minus this background.">Background</button>
       ${bgOn ? `<select id="xbg_pre"><option value="shirley">Shirley</option><option value="linear">linear</option></select>
       <label title="Each end level is the mean of this many points">ends: mean of <input type="number" id="xbg_l" value="${+b.navg || 1}" min="1" max="50" step="1" style="width:50px"> pts</label>
-      <label title="Leave both empty to use the whole spectrum">from <input type="number" id="xbg_a" value="${b.a ?? ''}" step="0.1" style="width:66px"> to <input type="number" id="xbg_b" value="${b.b ?? ''}" step="0.1" style="width:66px"> eV</label>` : '<span class="gmuted">dashed line under the peaks; it stays in the plot</span>'}</div>
+      <label title="Leave both empty to use the whole spectrum">from <input type="number" id="xbg_a" value="${b.a ?? ''}" step="0.1" style="width:66px"> to <input type="number" id="xbg_b" value="${b.b ?? ''}" step="0.1" style="width:66px"> eV</label>
+      <label title="Energies where the background is split: every part gets its own background, as separate regions in CasaXPS. Separate with commas; empty = one background for the whole window.">split at <input type="text" id="xbg_c" value="${(b.cuts || []).join(', ')}" placeholder="e.g. 52, 57.5, 64" style="width:150px"> eV</label>` : '<span class="gmuted">dashed line under the peaks; it stays in the plot</span>'}</div>
     <div class="prow"><button type="button" id="xsh_pick" class="tg${chOn ? ' on' : ''}" title="Charge correction: in every file the strongest C 1s peak is moved to ${C_REF} eV, and all regions of that file are shifted by the same amount. Click again to take the shift off.">Charge corr.</button>
       <span>C 1s → ${C_REF} eV</span>
       <span class="gmuted">${sp.shiftOn && sp.shift ? `this spectrum: ${sp.shift > 0 ? '+' : '−'}${Math.abs(+sp.shift).toFixed(2)} eV` : chOn ? 'this spectrum: no C 1s in its file, not shifted' : 'not applied'}</span></div>`;
@@ -604,6 +617,7 @@ function renderPre() {                          // the background acts on the sp
   if (bgOn) {
     $('#xbg_pre').onchange = all((q, t) => { q.bg.kind = t.value; }, t => `Background ${t.value}`);
     $('#xbg_l').onchange = all((q, t) => q.bg.navg = Math.max(1, Math.round(+t.value) || 1), t => `Background ends: mean of ${t.value} points`);
+    $('#xbg_c').onchange = all((q, t) => q.bg.cuts = t.value.split(/[,;\s]+/).map(Number).filter(v => isFinite(v) && v > 0).sort((x, y) => x - y), t => `Background split at ${t.value || 'nothing'}`);
     for (const k of ['a', 'b']) $('#xbg_' + k).onchange = all((q, t) => q.bg[k] = t.value === '' ? null : +t.value, () => `Background window ${$('#xbg_a').value || '…'}–${$('#xbg_b').value || '…'} eV`);
   }
   $('#xsh_pick').onclick = () => chargeCorrect(!chOn);
@@ -920,7 +934,7 @@ function exportFiles() {
       lines.push('', 'R2\t' + num(st.r2), 'noise\t' + num(st.noise) + '\tstandard deviation of (intensity - background - fit) in the fit range; SNR = peak height / noise', 'range\t' + num(sp.fit.range[0]) + '\t' + num(sp.fit.range[1]));
       for (const q of sp.fit.ratios) lines.push(ratioName(sp, q) + '\t' + num(ratioVal(sp, q)));
       lines.push('', 'module\t' + (RULES[sp.fit.rule] || sp.fit.rule), 'weight\t' + (sp.fit.weight ? `x${sp.fit.weight.w} in ${sp.fit.weight.a}-${sp.fit.weight.b}` : 'none'),
-        'background\t' + (bgShown(sp) ? `${sp.bg.kind || 'shirley'}, ends = mean of ${+sp.bg.navg || 1} points, ${sp.bg.a != null && sp.bg.b != null ? `window ${sp.bg.a}-${sp.bg.b} eV` : 'whole spectrum'}; peaks fitted to intensity minus background` : 'none'),
+        'background\t' + (bgShown(sp) ? `${sp.bg.kind || 'shirley'}, ends = mean of ${+sp.bg.navg || 1} points, ${sp.bg.a != null && sp.bg.b != null ? `window ${sp.bg.a}-${sp.bg.b} eV` : 'whole spectrum'}${(sp.bg.cuts || []).length ? ', split at ' + sp.bg.cuts.join(', ') + ' eV (one background for each part)' : ''}; peaks fitted to intensity minus background` : 'none'),
         'peak shape\tGaussian-Lorentzian sum (pseudo-Voigt), L_percent = Lorentzian share', 'charge correction (eV)\t' + (sp.shiftOn ? sp.shift + ' (strongest C 1s peak of the file moved to ' + C_REF + ' eV)' : 'none'));
       files.push([base + '_peaks.txt', lines.join('\n') + '\n']);
     }
