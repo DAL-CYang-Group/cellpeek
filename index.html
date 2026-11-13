@@ -168,9 +168,9 @@
   .hbtns { display:inline-flex; gap:6px; align-items:center; }
   button.big { font-weight:700; padding:6px 16px; border:1.5px solid #e08a00; color:#b36b00; background:#fff7e8; }
   button.big:not(:disabled):hover { background:#e08a00; color:#fff; }
-  #r_save { font-size:12.5px; } #r_save a { color:var(--accent); }
-  #r_save a.srcneed { font-weight:600; color:#fff; background:var(--accent); padding:2px 8px; border-radius:4px; text-decoration:none; }
-  #r_msg { padding:6px 16px 0; font-size:13px; color:var(--muted); min-height:6px; }
+  #r_save, #xr_save { font-size:12.5px; } #r_save a, #xr_save a { color:var(--accent); }
+  #r_save a.srcneed, #xr_save a.srcneed { font-weight:600; color:#fff; background:var(--accent); padding:2px 8px; border-radius:4px; text-decoration:none; }
+  #r_msg, #xr_msg { padding:6px 16px 0; font-size:13px; color:var(--muted); min-height:6px; }
   .rgrid { display:grid; grid-template-columns:minmax(0, var(--rl, 1fr)) minmax(0, var(--rr, 1fr)); gap:12px; padding:8px 16px 40px; align-items:start; }
   /* EIS: plots one below the other on the left, results table fixed on the right */
   .egrid { display:grid; grid-template-columns:minmax(0, 3fr) minmax(300px, 2fr); gap:12px; padding:8px 16px 40px; align-items:start; }
@@ -190,15 +190,16 @@
   .rgrid .mod, .rgrid .mod input, .rgrid .mod select, .rgrid .mod button { font-size:13px; }
   .rgrid .mod .bar { min-height:32px; flex-wrap:nowrap; } .rgrid .mod .bar .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:60px; }
   .rgrid .mod .bar .opts { flex-wrap:nowrap; white-space:nowrap; } .rgrid .mod .bar button { white-space:nowrap; flex:none; }
-  .rgrid .mod .bar .primary, .rgrid .mod .bar #ft_close { margin-left:auto; } .rgrid .mod .bar .expbtn { margin-left:0; font-size:11.5px; }
-  .rgrid .mod .bar #ft_open[hidden] + .expbtn { margin-left:auto; }
+  .rgrid .mod .bar .primary, .rgrid .mod .bar #ft_close, .rgrid .mod .bar #xft_close { margin-left:auto; } .rgrid .mod .bar .expbtn { margin-left:0; font-size:11.5px; }
+  .rgrid .mod .bar #ft_open[hidden] + .expbtn, .rgrid .mod .bar #xft_open[hidden] + .expbtn { margin-left:auto; }
   .rgrid label { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
   .rgrid .mod canvas { display:block; touch-action:none; }
   .rgrid .mod .lim, .rgrid .mod .axauto { font-size:11px; }
   .hintrow { margin-top:6px; padding:4px 10px; font-size:12.5px; color:var(--muted); border:1px solid transparent; border-radius:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .hintrow.hint { background:#fff8e1; border-color:#f0d9a0; color:var(--text); }
-  #wf_list { margin-top:8px; border-top:1px solid var(--line); padding-top:6px; max-height:190px; overflow:auto; }
-  #wf_list .empty { color:var(--muted); padding:8px 2px; }
+  #wf_list, #xwf_list { margin-top:8px; border-top:1px solid var(--line); padding-top:6px; max-height:190px; overflow:auto; }
+  #xwf_list .srow.other { opacity:.5; } #xwf_pre .prow { flex-wrap:wrap; row-gap:6px; }
+  #wf_list .empty, #xwf_list .empty { color:var(--muted); padding:8px 2px; }
   .srow { display:flex; align-items:center; gap:6px; padding:3px 6px; border-radius:6px; cursor:pointer; }
   .srow:hover { background:#f3f5f8; } .srow.on { background:#eef3fb; font-weight:600; }
   .srow input[type=color] { width:20px; height:20px; border:none; padding:0; background:none; cursor:pointer; }
@@ -220,7 +221,7 @@
   table.pk th { text-align:left; font-weight:600; color:var(--muted); font-size:12px; padding:3px 4px; border-bottom:1px solid var(--line); white-space:nowrap; }
   table.pk td { padding:3px 4px; border-bottom:1px solid #f0f2f4; white-space:nowrap; vertical-align:middle; } table.pk tr.on td { background:#eef3fb; }
   table.pk input[type=number] { width:76px; padding:3px 5px; } table.pk input.nm { width:110px; padding:3px 5px; }
-  table.pk input[data-f=eta] { width:60px; }
+  table.pk input[data-f=eta] { width:60px; } table.pk td.dbl select { font-size:12px; padding:2px 3px; } table.pk td.dbl .x { cursor:pointer; }
   table.pk input.lk { border-color:#e0c46c; background:#fffbea; }
   table.pk td.ro { font-variant-numeric:tabular-nums; } table.pk .sw { display:inline-block; width:10px; height:10px; border-radius:2px; }
   table.pk .ef { display:inline; } table.pk .ef input { margin:0 0 0 4px; vertical-align:-2px; }
@@ -244,6 +245,7 @@
   <nav id="tabs" role="tablist">
     <button type="button" role="tab" data-tab="neware">Neware Cycling</button>
     <button type="button" role="tab" data-tab="raman">Raman Fitting</button>
+    <button type="button" role="tab" data-tab="xps">XPS Fitting</button>
     <button type="button" role="tab" data-tab="eis">EIS ECM</button>
     <button type="button" role="tab" data-tab="drt">EIS DRT</button>
   </nav>
@@ -262,6 +264,8 @@
   <label title="Also search the other NEWARE... folders (slow the first time they are read)"><input type="checkbox" id="kwall"> all NEWARE folders</label>
   <span class="sp"></span>
   <span id="idx"></span>
+</div>
+<div class="toolbar" data-pane="xps" hidden>
 </div>
 <div class="toolbar" data-pane="raman" hidden>
 </div>
@@ -290,6 +294,8 @@
 </aside>
 </div>
 </section>
+<section data-pane="xps" hidden>
+</section>
 <section data-pane="raman" hidden>
 </section>
 <section data-pane="eis" hidden>
@@ -298,13 +304,14 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.3.1&b=3"></script>
-<script src="versions.js?v=0.3.1&b=3"></script>
-<script src="data.js?v=0.3.1&b=3"></script>
-<script src="auth.js?v=0.3.1&b=3"></script>
-<script src="raman.js?v=0.3.1&b=3"></script>
-<script src="eis.js?v=0.3.1&b=3"></script>
-<script src="drt.js?v=0.3.1&b=3"></script>
+<script src="config.js?v=0.3.1&b=4"></script>
+<script src="versions.js?v=0.3.1&b=4"></script>
+<script src="data.js?v=0.3.1&b=4"></script>
+<script src="auth.js?v=0.3.1&b=4"></script>
+<script src="raman.js?v=0.3.1&b=4"></script>
+<script src="xps.js?v=0.3.1&b=4"></script>
+<script src="eis.js?v=0.3.1&b=4"></script>
+<script src="drt.js?v=0.3.1&b=4"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
