@@ -54,7 +54,11 @@ function drt(d, lam, coeff = 0.5) {
 
 // ---------------- peaks: γ is cut at its minima ----------------
 // Returns {v: [indices of the cuts, first = 0, last = n−1], seg: [{a, b, area, imax}]};  area = ∫ γ d ln τ = resistance of that peak (Ω)
-function peaks(lt, g, minProm = 0.02) {
+// A piece is kept as a peak of its own when its prominence is at least minProm × the highest γ, or — so that the small peaks
+// seen on a logarithmic γ axis can be limits too — when it is higher than minRel × the highest γ and at least minRatio × the
+// higher of its two neighbouring minima. Anything less is a ripple and is merged with its neighbour.
+const PEAKV = 2;                                 // version of this rule (stored peak lists of an older version are made again)
+function peaks(lt, g, minProm = 0.02, minRel = 1e-3, minRatio = 1.25) {
   const n = g.length; let gmax = 0; for (const y of g) if (y > gmax) gmax = y;
   let v = [0];
   for (let i = 1; i < n - 1; i++) { let j = i; while (j + 1 < n && g[j + 1] === g[i]) j++;                 // a flat bottom counts as one minimum, at its middle
@@ -62,11 +66,12 @@ function peaks(lt, g, minProm = 0.02) {
   v.push(n - 1);
   const segOf = () => v.slice(0, -1).map((a, k) => { const b = v[k + 1]; let im = a, area = 0; for (let i = a; i <= b; i++) { if (g[i] > g[im]) im = i; if (i > a) area += (g[i] + g[i - 1]) / 2 * (lt[i] - lt[i - 1]); }
     const lv = k === 0 && im === a ? -Infinity : g[a], rv = k === v.length - 2 && im === b ? -Infinity : g[b], base = Math.max(lv, rv);
-    return {a, b, imax: im, area, prom: base === -Infinity ? g[im] : g[im] - base}; });
+    return {a, b, imax: im, area, prom: base === -Infinity ? g[im] : g[im] - base, ratio: base > 0 ? g[im] / base : Infinity}; });
   let seg = segOf();
   while (seg.length > 1) {                        // ripples are not peaks: the least prominent one is merged with its neighbour
-    let k = 0; for (let i = 1; i < seg.length; i++) if (seg[i].prom < seg[k].prom) k = i;
-    if (seg[k].prom >= minProm * gmax) break;
+    const keep = q => q.prom >= minProm * gmax || (g[q.imax] >= minRel * gmax && q.ratio >= minRatio);
+    let k = -1; for (let i = 0; i < seg.length; i++) if (!keep(seg[i]) && (k < 0 || seg[i].prom < seg[k].prom)) k = i;       // the least prominent ripple
+    if (k < 0) break;
     const li = k > 0 ? k : -1, ri = k < seg.length - 1 ? k + 1 : -1;            // interior cuts on the left / right of this segment (positions in v)
     const drop = li < 0 ? ri : ri < 0 ? li : (g[v[li]] >= g[v[ri]] ? li : ri);
     v.splice(drop, 1); seg = segOf();
@@ -81,7 +86,7 @@ function applyCuts(pk, kS, kE) {                 // limits at the cuts v[kS] and
 }
 function applyRule(pk, rule) { const K = pk.seg.length, r = applyCuts(pk, rule.nL, K - rule.nR); r.clipped = r.nL !== rule.nL || r.nR !== rule.nR; return r; }
 
-const API = {drt, peaks, applyRule, applyCuts, CITE};
+const API = {drt, peaks, applyRule, applyCuts, CITE, PEAKV};
 if (typeof module !== 'undefined' && module.exports) { module.exports = API; return; }
 if (typeof document === 'undefined') return;
 
@@ -96,7 +101,7 @@ const natural = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'
 const RANGE_TOL = 0.5;                            // decades: a start / end further than this from the median of the set is flagged
 const ECM_POOR = 2.5;                             // % — as in the EIS ECM tab: 2 semicircles unless some spectra fit poorly, then 3 for all
 // S.rule: one rule for the whole set. S.touched: the user has set it (until then: 1 contact peak, diffusion peak left out when the spectra have a tail)
-const S = {spectra: [], lam: 1e-3, ylog: false, rule: {nL: 1, nR: 1}, touched: null, ecmMode: 3};
+const S = {spectra: [], lam: 1e-3, ylog: true, rule: {nL: 1, nR: 1}, touched: null, ecmMode: 3, ecmSkipL: false};     // ecmSkipL: the ECM comparison leaves the inductive points out (no inductor)
 let seq = 0, busy = false;
 const msg = t => { const e = $('#d_msg'); if (e) e.textContent = t || ''; };
 const eis = () => NQP.eis;
@@ -125,19 +130,18 @@ function compute(list) {                          // DRT of each spectrum, then 
   };
   setTimeout(step, 0);
 }
-function defaultRule() {                          // before the user chooses: first peak = contact; on the right, the peaks that lie in the diffusion tail
+function defaultRule() {                          // before the user moves a bar: first peak = contact; the last peak = diffusion when most spectra have a tail
   const ok = S.spectra.filter(s => s.pk); if (!ok.length) return;
-  const cnt = ok.map(s => { const sh = eis().shape(s); if (!sh.tail) return 0; const tauT = 1 / (TWO_PI * s.f[sh.iMin]) * 0.7;      // tail starts at the −Z″ minimum
-    return Math.min(s.pk.seg.length - 2, s.pk.seg.filter(q => Math.exp(s.drt.lt[q.imax]) > tauT).length); }).sort((x, y) => x - y);
-  S.rule = {nL: 1, nR: Math.max(0, cnt[cnt.length >> 1])};
+  const tails = ok.filter(s => eis().shape(s).tail && s.pk.seg.length >= 3).length;
+  S.rule = {nL: 1, nR: tails * 2 > ok.length ? 1 : 0};
 }
 let ecmBusy = false;
 function ecmQueue() {                             // same principle as the ECM tab: one model for the set, 2 semicircles unless some fit poorly
-  if (ecmBusy) return; const todo = S.spectra.filter(s => !s.ecm || s.ecm.mode !== S.ecmMode); if (!todo.length) { msg(''); return finishEcm(); }
+  if (ecmBusy) return; const todo = S.spectra.filter(s => !s.ecm || s.ecm.mode !== S.ecmMode || !!s.ecm.skip !== !!S.ecmSkipL); if (!todo.length) { msg(''); return finishEcm(); }
   ecmBusy = true; let i = 0;
   const step = () => { if (i >= todo.length) { ecmBusy = false; return finishEcm(); }
     const s = todo[i++]; msg(`ECM comparison ${i} / ${todo.length} …`);
-    try { const f = eis().fitSpectrum(s, {n: S.ecmMode, tail: 'auto'}); s.ecm = f ? {v: f.v, mode: S.ecmMode, R_ct: f.R_ct, R_contact: f.R_contact, err: f.err} : {v: eis().FITV, mode: S.ecmMode, failed: true}; } catch { s.ecm = {v: eis().FITV, mode: S.ecmMode, failed: true}; }
+    try { const f = eis().fitSpectrum(s, {n: S.ecmMode, tail: 'auto', inductive: S.ecmSkipL ? 'skip' : 'fit'}); s.ecm = f ? {v: f.v, mode: S.ecmMode, skip: !!S.ecmSkipL, R_ct: f.R_ct, R_contact: f.R_contact, err: f.err} : {v: eis().FITV, mode: S.ecmMode, skip: !!S.ecmSkipL, failed: true}; } catch { s.ecm = {v: eis().FITV, mode: S.ecmMode, skip: !!S.ecmSkipL, failed: true}; }
     renderTable(); setTimeout(step, 0); };
   setTimeout(step, 0);
 }
@@ -204,24 +208,31 @@ function draw(cv, s, ax, res) {
   g.strokeStyle = '#111'; g.lineWidth = 1.6; g.beginPath(); for (let i = 0; i < gm.length; i++) { const x = X(lt[i]), y = Y(gm[i]); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke();
   if (res) { g.lineWidth = 2; g.strokeStyle = res.off ? '#b00' : res.adjusted ? '#d97706' : '#1f5fbf';              // the two limits of the R_ct range
     for (const i of [res.iStart, res.iEnd]) { const x = Math.round(X(lt[i])); g.beginPath(); g.moveTo(x, T); g.lineTo(x, T + ph); g.stroke(); g.fillStyle = g.strokeStyle; g.beginPath(); g.moveTo(x - 5, T); g.lineTo(x + 5, T); g.lineTo(x, T + 7); g.closePath(); g.fill(); } }
-  if (cv._drag) { g.fillStyle = 'rgba(31,95,191,.13)'; g.fillRect(Math.min(cv._drag.x0, cv._drag.x1), T, Math.abs(cv._drag.x1 - cv._drag.x0), ph); }
   g.restore();
 }
 
-// ---------------- choosing the range on any plot: double-click a place, or drag from left to right; it snaps to the nearest minimum ----------------
+// ---------------- choosing the range on any plot: drag one of its two limits (bars); a bar snaps to the nearest minimum ----------------
 function nearestCut(s, ltv) { const lt = s.drt.lt, v = s.pk.v; let k = 0; for (let i = 1; i < v.length; i++) if (Math.abs(lt[v[i]] - ltv) < Math.abs(lt[v[k]] - ltv)) k = i; return k; }
 function setRule(s, kStart, kEnd) {
   const K = s.pk.seg.length; if (kEnd <= kStart) return msg('The range needs at least one peak between its two limits');
   S.rule = {nL: kStart, nR: K - kEnd}; S.touched = s.name; S.refId = s.id; msg(`Range set on ${s.name}: ${kStart} peak${kStart === 1 ? '' : 's'} left out on the left, ${K - kEnd} on the right — applied to all spectra`);
   if (NQP.log) NQP.log('drt_rule', S.rule); render();
 }
+const GRAB = 9;                                  // px: how close to a bar the pointer must be to take it
 function hook(cv, s) {
-  const ax = () => mapX(axes(), cv.parentElement.clientWidth || 600);
-  cv.ondblclick = e => { if (!s.pk) return; const k = nearestCut(s, ax().inv(e.offsetX)), r = results().get(s.id), ks = r.kS, ke = r.kE;
-    Math.abs(k - ks) <= Math.abs(k - ke) ? setRule(s, k, Math.max(ke, k + 1)) : setRule(s, Math.min(ks, k - 1), k); };
-  cv.onpointerdown = e => { if (!s.pk) return; cv._drag = {x0: e.offsetX, x1: e.offsetX}; cv.setPointerCapture(e.pointerId); };
-  cv.onpointermove = e => { if (!cv._drag) return; cv._drag.x1 = e.offsetX; if (Math.abs(cv._drag.x1 - cv._drag.x0) > 6) draw(cv, s, axes(), results().get(s.id)); };
-  cv.onpointerup = () => { const d = cv._drag; cv._drag = null; if (!d) return; if (d.x1 - d.x0 > 6) { const m = ax(); setRule(s, nearestCut(s, m.inv(d.x0)), nearestCut(s, m.inv(d.x1))); } else draw(cv, s, axes(), results().get(s.id)); };
+  const mp = () => mapX(axes(), cv.parentElement.clientWidth || 600);
+  const barAt = e => { if (!s.pk) return null; const r = results().get(s.id); if (!r) return null; const m = mp(), lt = s.drt.lt;
+    const dS = Math.abs(m.X(lt[r.iStart]) - e.offsetX), dE = Math.abs(m.X(lt[r.iEnd]) - e.offsetX);
+    return Math.min(dS, dE) > GRAB ? null : {which: dS <= dE ? 'S' : 'E', kS: r.kS, kE: r.kE}; };
+  cv.ondblclick = null;
+  cv.onpointerdown = e => { const b = barAt(e); if (!b) return; cv._bar = b; cv.setPointerCapture(e.pointerId); cv.style.cursor = 'ew-resize'; e.preventDefault(); };
+  cv.onpointermove = e => { const b = cv._bar;
+    if (!b) { cv.style.cursor = barAt(e) ? 'ew-resize' : 'default'; return; }
+    const k = nearestCut(s, mp().inv(e.offsetX)), K = s.pk.seg.length;                    // the bar jumps from minimum to minimum; the two bars keep at least one peak between them
+    if (b.which === 'S') b.kS = Math.max(0, Math.min(k, b.kE - 1)); else b.kE = Math.min(K, Math.max(k, b.kS + 1));
+    draw(cv, s, axes(), applyCuts(s.pk, b.kS, b.kE)); };
+  cv.onpointerup = cv.onpointercancel = () => { const b = cv._bar; cv._bar = null; if (!b) return; const r = results().get(s.id);
+    if (r && (b.kS !== r.kS || b.kE !== r.kE)) setRule(s, b.kS, b.kE); else draw(cv, s, axes(), r); };
 }
 
 // ---------------- page layout ----------------
@@ -233,7 +244,8 @@ function build() {
       <span class="ic">⇣</span><span><b>Drop EIS files here</b><br><u>or click to choose files…</u></span></label>
     <button type="button" id="d_from" title="Use the spectra that are loaded in the EIS ECM tab">Take the EIS ECM spectra</button>
     <label title="Regularisation parameter of the DRT; one value for the whole set">λ <input type="text" id="d_lam" value="1e-3" style="width:64px"></label>
-    <label title="Vertical axis of the plots. The τ axis is always logarithmic.">γ axis <select id="d_y"><option value="lin">linear</option><option value="log">log</option></select></label>
+    <label title="Vertical axis of the plots. The τ axis is always logarithmic.">γ axis <select id="d_y"><option value="log">log</option><option value="lin">linear</option></select></label>
+    <label title="For the ECM column of the table. Off: all points are fitted, with an inductor. On: the points with −Z″ &lt; 0 at high frequency are left out and the circuit has no inductor."><input type="checkbox" id="d_ecml"> ECM without L</label>
     <span class="sp"></span>
     <button type="button" id="d_clear">Clear</button>
     <button type="button" id="d_export" class="primary" title="Table with R_contact and R_ct of every spectrum">Export results</button>`;
@@ -248,8 +260,8 @@ function build() {
         <div class="bar"><span class="t">Results</span><span class="opts gmuted" id="d_sum"></span></div>
         <div id="d_tab"></div>
         <div class="note">Areas under γ(ln τ) between its minima. Grey: contact peak(s), left out. Blue: the R_ct range. Orange: diffusion, left out.
-          To change the range, double-click near a minimum (dashed line) on any plot, or drag from left to right; the limits snap to the nearest minimum and the same rule is applied to every spectrum.
-          ECM: R_ct from the equivalent-circuit fit as in the EIS ECM tab, for comparison; here always with all points and an inductor.</div>
+          To change the range, drag one of its two bars on any plot: it jumps from minimum to minimum (dashed lines), and the same rule is applied to every spectrum.
+          ECM: R_ct from the equivalent-circuit fit as in the EIS ECM tab, for comparison; with all points and an inductor, or without the inductive points when &quot;ECM without L&quot; is ticked.</div>
       </div>
     </div>`;
   $('#d_file').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
@@ -262,6 +274,7 @@ function build() {
   $('#d_from').onclick = () => { const src = eis().state().spectra.filter(q => !S.spectra.some(s => s.name === q.name)); if (!src.length) return msg('No new spectra in the EIS ECM tab'); addSpectra(src); };
   $('#d_lam').onchange = e => { const v = +e.target.value; if (!(v > 0)) { e.target.value = S.lam; return; } S.lam = v; for (const s of S.spectra) { s.drt = null; s.pk = null; } render(); compute(S.spectra.slice()); };
   $('#d_y').onchange = e => { S.ylog = e.target.value === 'log'; drawAll(); save(); };
+  $('#d_ecml').onchange = e => { S.ecmSkipL = e.target.checked; renderTable(); save(); ecmQueue(); };
   $('#d_clear').onclick = () => { S.spectra = []; S.touched = null; S.refId = null; S.rule = {nL: 1, nR: 1}; S.ecmMode = 3; msg(''); render(); };
   $('#d_export').onclick = exportCsv;
   let rt; new ResizeObserver(() => { if (sec.hidden) return; clearTimeout(rt); rt = setTimeout(drawAll, 80); }).observe(sec);
@@ -273,7 +286,7 @@ function head(s, r) {
 }
 function renderTable() {
   const R = results();
-  const rows = S.spectra.map(s => { const r = R.get(s.id), e = s.ecm && !s.ecm.failed && s.ecm.mode === S.ecmMode ? s.ecm : null, dv = r && e ? 100 * (r.R_ct - e.R_ct) / e.R_ct : null;
+  const rows = S.spectra.map(s => { const r = R.get(s.id), e = s.ecm && !s.ecm.failed && s.ecm.mode === S.ecmMode && !!s.ecm.skip === !!S.ecmSkipL ? s.ecm : null, dv = r && e ? 100 * (r.R_ct - e.R_ct) / e.R_ct : null;
     return `<tr data-id="${s.id}" style="cursor:pointer"><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left" title="${esc(s.name)}"><bdi>${esc(s.name)}</bdi></td>
       <td style="text-align:right">${r ? fmt(r.R_contact) : ''}</td><td style="text-align:right"><b>${r ? fmt(r.R_ct) : s.drt ? 'failed' : '…'}</b></td>
       <td style="text-align:right;color:var(--muted)">${e ? fmt(e.R_ct) : s.ecm && s.ecm.failed ? 'failed' : '…'}</td>
@@ -281,7 +294,7 @@ function renderTable() {
       <td title="${r && r.adjusted && !r.off ? 'Counting peaks put a limit far from where it is for the rest of the set, so the nearest minimum was used' : r && r.off ? `start ${r.dStart >= 0 ? '+' : ''}${r.dStart.toFixed(2)}, end ${r.dEnd >= 0 ? '+' : ''}${r.dEnd.toFixed(2)} decades from the reference` : ''}" style="${r && r.off ? 'color:#b00;font-weight:600' : r && r.adjusted ? 'color:#d97706' : 'color:var(--muted)'}">${r ? (r.off ? 'check' : r.adjusted ? 'adjusted' : 'ok') : ''}</td>
       <td class="x" title="Remove">✕</td></tr>`; }).join('');
   $('#d_tab').innerHTML = S.spectra.length ? `<table class="pk"><thead><tr><th>Spectrum</th><th style="text-align:right">R_contact<br>(Ω)</th><th style="text-align:right">R_ct DRT<br>(Ω)</th>
-      <th style="text-align:right" title="Equivalent-circuit fit, ${S.ecmMode} semicircles for the whole set; all points are fitted, with an inductor (the box &quot;leave out inductive points&quot; of the EIS ECM tab does not apply here)">R_ct ECM<br>(${S.ecmMode} semic., with L)</th><th style="text-align:right" title="DRT relative to ECM">Δ<br>(%)</th>
+      <th style="text-align:right" title="Equivalent-circuit fit for comparison, ${S.ecmMode} semicircles for the whole set; ${S.ecmSkipL ? 'the inductive points at high frequency are left out, no inductor' : 'all points are fitted, with an inductor'} (box &quot;ECM without L&quot; above)">R_ct ECM<br>(${S.ecmMode} semic., ${S.ecmSkipL ? 'no L' : 'with L'})</th><th style="text-align:right" title="DRT relative to ECM">Δ<br>(%)</th>
       <th title="Whether the start and the end of the range sit where they do for the rest of the set">range</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="gmuted" style="padding:8px 2px">No spectra yet.</div>';
   $('#d_tab').querySelectorAll('tr[data-id]').forEach(tr => { const q = S.spectra.find(z => z.id === tr.dataset.id);
@@ -294,7 +307,7 @@ function renderTable() {
 function render() {
   save();
   const sec = $('section[data-pane=drt]'); if (!sec || sec.hidden) return;
-  $('#d_plots').innerHTML = S.spectra.length ? S.spectra.map(s => `<div class="mod" id="dcard_${s.id}"><div class="bar"></div><div class="plot"><canvas id="dcv_${s.id}" style="touch-action:none;cursor:col-resize"></canvas></div></div>`).join('')
+  $('#d_plots').innerHTML = S.spectra.length ? S.spectra.map(s => `<div class="mod" id="dcard_${s.id}"><div class="bar"></div><div class="plot"><canvas id="dcv_${s.id}" style="touch-action:none"></canvas></div></div>`).join('')
     : '<div class="mod"><div class="note" style="padding:14px 4px">Drop the impedance files of one cell (frequency, Z′, Z″) on the box above, or take the spectra already loaded in the EIS ECM tab. Each spectrum gets its γ(τ) plot here, one below the other.</div></div>';
   for (const s of S.spectra) hook($('#dcv_' + s.id), s);
   renderTable(); drawAll();
@@ -316,13 +329,15 @@ function exportCsv() {
 let saveT = null, ready = false;
 function save() {
   if (!ready || !NQP.idb) return;
-  clearTimeout(saveT); saveT = setTimeout(() => { NQP.idb.set('drt', {...S, seq}).catch(() => {}); }, 600);
+  clearTimeout(saveT); saveT = setTimeout(() => { NQP.idb.set('drt', {...S, seq, pv: PEAKV}).catch(() => {}); }, 600);
 }
 async function restore() {
   try { const r = NQP.idb && await NQP.idb.get('drt');
-    if (r && Array.isArray(r.spectra)) { const {seq: q, ...st} = r; delete st.xlog; Object.assign(S, st); S.ylog = !!S.ylog; seq = q || r.spectra.length;
+    if (r && Array.isArray(r.spectra)) { const {seq: q, ...st} = r; delete st.xlog; const oldPk = st.pv !== PEAKV; delete st.pv; Object.assign(S, st); S.ylog = st.ylog !== false; seq = q || r.spectra.length;
+      if (oldPk) { for (const z of S.spectra) if (z.drt && !z.drt.failed) z.pk = peaks(z.drt.lt, z.drt.g);      // peaks cut by the older rule: cut again; the range starts from the default
+        S.touched = null; S.refId = null; S.ylog = true; defaultRule(); }
       for (const z of S.spectra) if (z.ecm && z.ecm.v !== eis().FITV) { z.ecm = null; S.ecmMode = 3; }      // ECM comparison made with an older fitting method: redo
-      if ($('#d_lam')) { $('#d_lam').value = S.lam; $('#d_y').value = S.ylog ? 'log' : 'lin'; } } } catch {}
+      if ($('#d_lam')) { $('#d_lam').value = S.lam; $('#d_y').value = S.ylog ? 'log' : 'lin'; $('#d_ecml').checked = !!S.ecmSkipL; } } } catch {}
   ready = true;
 }
 window.addEventListener('DOMContentLoaded', async () => { build(); await restore(); render(); if (S.spectra.length) compute(S.spectra.filter(s => !s.drt)); window.addEventListener('cellpeek:tab', () => render()); });
