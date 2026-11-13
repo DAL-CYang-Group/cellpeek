@@ -163,7 +163,31 @@ async function dataStep() {
   if (FOLDER_STATE !== 'granted') status(FOLDER_STATE === 'prompt'
     ? `Click "allow ${SAVED_NAME}" next to Data (top right) to read the data folder again.`
     : 'To start, click "connect CYCLING folder" next to Data (top right).');
+  DATA_STEP = true; folderPrompt();
 }
+// Neware Cycling opened without a readable data folder: offer to connect it (once per page load; "Not now" closes it)
+let DATA_STEP = false, FOLD_ASKED = false;
+function folderPrompt() {
+  const d = $('#fold');
+  if (!d || !DATA_STEP || FOLD_ASKED || NQP.source.mode !== 'local' || FOLDER_STATE === 'granted') return;
+  if (!$('#tabs [data-tab=neware].on') || !$('#gate').hidden || $('dialog[open]')) return;
+  FOLD_ASKED = true;
+  const again = FOLDER_STATE === 'prompt', sup = USER && USER.super, go = $('#fo_go'), other = $('#fo_other');
+  $('#fo_body').innerHTML = again
+    ? `<p>Neware Cycling reads the cycling files from your data folder <b>${esc(SAVED_NAME)}</b>. The browser asks for permission again after a restart.</p>
+       <p class="gmuted">Tip: in the browser prompt choose <i>Allow on every visit</i> to skip this step next time.</p>`
+    : `<p>Neware Cycling reads the cycling files straight from the data drive. Choose the <b>CYCLING</b> folder, for example<br><code>Z:\\databdayse\\DATA\\CYCLING</code></p>
+       <p class="gmuted">The page only reads files (read-only); the folder is remembered on this computer. You can also do this later from "Data:" at the top right.</p>`;
+  go.textContent = again ? `Allow ${SAVED_NAME}` : 'Choose folder…';
+  other.hidden = !(again || sup); other.textContent = sup ? 'Other source…' : 'Choose another folder…';
+  go.onclick = async () => { d.close();
+    if (!again) return pickFolder();
+    if (await NQP.folder.reconnect()) { FOLDER_STATE = 'granted'; srcLabel(); folderReady(); NQP.log('folder', {name: NQP.folder.name(), how: 'reconnect'}); } };
+  other.onclick = () => { d.close(); sup ? chooseSource() : pickFolder(); };
+  $('#fo_x').onclick = $('#fo_no').onclick = () => d.close();
+  d.showModal(); go.focus();
+}
+window.addEventListener('cellpeek:tab', folderPrompt);
 async function pickFolder() {
   try {
     const r = await NQP.folder.pick(); FOLDER_STATE = 'granted';
