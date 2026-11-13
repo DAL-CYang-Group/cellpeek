@@ -1,4 +1,4 @@
-// CellPeek — XPS Fitting tab (made from the Raman Fitting tab; the two files are independent).
+// CellPeek — NMC XPS tab (made from the Raman Fitting tab; the two files are independent).
 // Left: all loaded spectra, stacked (despike, background, charge correction there), with the fitted peaks drawn on each curve.
 // Right: fitting window for the selected spectrum. Differences from Raman:
 //   - x axis = binding energy (eV), drawn from high to low
@@ -300,8 +300,38 @@ function runFit(sp, opt = {}) {
 }
 
 // ---------------- rule presets: none yet (to be added from real data) ----------------
-const RULES = {manual: 'Manual peaks'};
-function applyRule(sp, rule) { sp.fit.rule = 'manual'; sp.fit.weight = null; }
+// ---- NMC modules. A module sets the background, the fitting range and a fixed list of peaks with limits; everything can be changed afterwards in the table.
+// m3p — the 45–80 eV region of an NMC cathode: Mn 3p, Li 1s, Co 3p (+ satellite), Ni 3p3/2 and 3p1/2 (+ their satellites).
+//       Energies are for charge-corrected spectra (C 1s at 284.8 eV), so the charge correction is switched on first when it is not yet.
+//       lim = [low, high] for centre (eV) and width (eV); Ni 3p1/2 is tied to Ni 3p3/2 (splitting, area ratio 1:2, same width).
+const RULES = {manual: 'Manual peaks', m3p: 'NMC 3p region: Mn 3p · Li 1s · Co 3p · Ni 3p'};
+const M3P = {range: [45, 80], peaks: [
+  {key: 'Mn', name: 'Mn 3p',         c: 49.5, w: 2.6, lim: {c: [48.5, 50.6], w: [1.5, 4.0]}, color: '#d62728'},
+  {key: 'Li', name: 'Li 1s',         c: 54.0, w: 2.2, lim: {c: [53.0, 55.3], w: [1.2, 3.5]}, color: '#e377c2'},
+  {key: 'Co', name: 'Co 3p',         c: 60.8, w: 2.8, lim: {c: [59.6, 62.0], w: [1.5, 4.5]}, color: '#ff7f0e'},
+  {key: 'Ni', name: 'Ni 3p3/2',      c: 67.1, w: 2.4, lim: {c: [66.2, 68.0], w: [1.5, 3.5]}, color: '#1f3fd0'},
+  {key: 'Ni2', name: 'Ni 3p1/2',     link: {to: 'Ni', d: 1.9, r: 0.5}, color: '#6a1b9a'},
+  {key: 'CoS', name: 'Co 3p sat.',   c: 70.4, w: 1.5, lim: {c: [69.7, 71.1], w: [0.8, 2.5]}, color: '#ff9896'},
+  {key: 'NiS', name: 'Ni 3p3/2 sat.', c: 71.8, w: 2.2, lim: {c: [71.1, 72.8], w: [1.2, 3.5]}, color: '#7b8cff'},
+  {key: 'NiS2', name: 'Ni 3p1/2 sat.', c: 73.9, w: 2.2, lim: {c: [73.0, 75.0], w: [1.2, 3.5]}, color: '#b07cc6'}]};
+function applyRule(sp, rule) {
+  sp.fit.rule = RULES[rule] ? rule : 'manual'; sp.fit.weight = null;
+  if (sp.fit.rule !== 'm3p') return '';
+  const d = DATA[sp.id]; if (!d) return '';
+  if (!S.spectra.some(q => q.shiftOn && q.shift)) applyCharge(true);                      // preset energies are charge-corrected ones
+  const sh = sp.shiftOn ? +sp.shift || 0 : 0, lo = d.x[0] + sh, hi = d.x[d.x.length - 1] + sh;
+  if (hi < 56 || lo > 66) { sp.fit.rule = 'manual'; return 'This module is for the 45–80 eV region; the selected spectrum does not cover it.'; }
+  const a = Math.max(lo, M3P.range[0]), b = Math.min(hi, M3P.range[1]);
+  sp.fit.range = [a, b]; sp.fit.auto = false; sp.bg = {...sp.bg, method: 'on', kind: 'shirley', navg: 3, a: +a.toFixed(2), b: +b.toFixed(2), applied: false};
+  PCACHE.clear(); const r = proc(sp), ids = {};
+  for (const t of M3P.peaks) ids[t.key] = nid();
+  sp.fit.peaks = M3P.peaks.filter(t => t.link || (t.c > a && t.c < b)).map(t => { const i = t.link ? 0 : nearestIdx(r.x, t.c);
+    return t.link ? {id: ids[t.key], key: t.key, name: t.name, c: 0, w: 1, h: 0, eta: 0.3, etaFree: false, lock: false, color: t.color, link: {to: ids[t.link.to], d: t.link.d, r: t.link.r}}
+      : {id: ids[t.key], key: t.key, name: t.name, c: t.c, w: t.w, h: Math.max(r.y[i] * 0.7, 1e-6), eta: 0.3, etaFree: false, lock: false, color: t.color, lim: {c: t.lim.c.slice(), w: t.lim.w.slice()}}; });
+  sp.fit.ratios = []; ACTIVE = null;
+  runFit(sp, {iters: 250, starts: 10});
+  return '';
+}
 
 // ---------------- canvas plotting (same look as the cycling plots) ----------------
 function ticks(a, b, n) {
@@ -539,7 +569,7 @@ function c1sPeak(sp) {                          // energy of the highest point (
   const y0 = d.y[k - 1], y1 = d.y[k], y2 = d.y[k + 1], den = y0 - 2 * y1 + y2;
   return d.x[k] + (den < 0 ? 0.5 * (y0 - y2) / den : 0) * (d.x[k + 1] - d.x[k]);
 }
-function chargeCorrect(on) {
+function applyCharge(on) {
   const files = new Map(); for (const q of S.spectra) { const f = q.file || q.id; if (!files.has(f)) files.set(f, []); files.get(f).push(q); }
   let done = 0, none = 0; const notes = [];
   for (const [f, list] of files) {
@@ -548,6 +578,10 @@ function chargeCorrect(on) {
     for (const q of list) { q.shift = sh; q.shiftOn = sh !== 0; autoRange(q); }
   }
   PCACHE.clear(); for (const q of S.spectra) if (q.fit.peaks.length) runFit(q, {iters: 60});
+  return {done, none, notes};
+}
+function chargeCorrect(on) {
+  const {done, none, notes} = applyCharge(on);
   commit(on ? `Charge correction: C 1s to ${C_REF} eV (${notes.join(', ') || 'no C 1s found'} eV)` : 'Charge correction off');
   msg(on ? (done ? `Charge correction: ${done} file${done > 1 ? 's' : ''} shifted (${notes.join(', ')} eV)` : 'No C 1s spectrum found') + (none ? ` · ${none} file${none > 1 ? 's' : ''} without a C 1s spectrum, not shifted` : '') : 'Charge correction taken off');
 }
@@ -658,11 +692,12 @@ function renderFitBar() {
   $('#xft_title').innerHTML = sp ? `Fitting · <span style="color:${sp.color}">${esc(sp.name)}</span>` : 'Fitting';
   if (!sp) { b.innerHTML = ''; h.innerHTML = 'Load spectra first.'; return; }
   const fr = sp.fit.range;
-  b.innerHTML = `<label>range <input type="number" id="xft_a" value="${fr ? +fr[0].toFixed(2) : ''}" step="0.1" style="width:72px"> – <input type="number" id="xft_b" value="${fr ? +fr[1].toFixed(2) : ''}" step="0.1" style="width:72px"> eV</label>`;
+  b.innerHTML = `<label>range <input type="number" id="xft_a" value="${fr ? +fr[0].toFixed(2) : ''}" step="0.1" style="width:72px"> – <input type="number" id="xft_b" value="${fr ? +fr[1].toFixed(2) : ''}" step="0.1" style="width:72px"> eV</label>
+    <label title="A module sets the background, the range and a fixed list of peaks for one region of an NMC cathode">module <select id="xft_rule">${Object.entries(RULES).map(([k, v]) => `<option value="${k}" ${sp.fit.rule === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>`;
   h.classList.toggle('hint', mode() === 'range');
   h.innerHTML = mode() === 'range' ? '<b>Drag across the plot</b> to choose the fitting range (or type it above). It need not match the view.'
     : 'Double-click: add a peak · drag a dot: move it · scroll: width · doublets: in the table · the whole scan is fitted; drag a dashed line to narrow the range';
-  const rs = $('#xft_rule'); if (rs) rs.onchange = () => { applyRule(sp, rs.value); commit(`${sp.name}: rule ${rs.value}`); };
+  const rs = $('#xft_rule'); if (rs) rs.onchange = () => { const note = applyRule(sp, rs.value); commit(`${sp.name}: module ${RULES[sp.fit.rule]}`); if (note) msg(note); };
   for (const k of ['xft_a', 'xft_b']) { const el = $('#' + k); if (el) el.onchange = () => {
     const a = +$('#xft_a').value, c = +$('#xft_b').value; if (!isFinite(a) || !isFinite(c) || a === c) return;
     sp.fit.range = [Math.min(a, c), Math.max(a, c)]; sp.fit.auto = false; runFit(sp, {iters: 150}); commit(`${sp.name}: range ${sp.fit.range.map(v => v.toFixed(1)).join('–')} eV`); }; }
@@ -884,7 +919,7 @@ function exportFiles() {
         lines.push(row.join('\t')); sum.push([sp.name, ...row, num(st.r2), num(sp.fit.range[0]), num(sp.fit.range[1])].join('\t')); }
       lines.push('', 'R2\t' + num(st.r2), 'noise\t' + num(st.noise) + '\tstandard deviation of (intensity - background - fit) in the fit range; SNR = peak height / noise', 'range\t' + num(sp.fit.range[0]) + '\t' + num(sp.fit.range[1]));
       for (const q of sp.fit.ratios) lines.push(ratioName(sp, q) + '\t' + num(ratioVal(sp, q)));
-      lines.push('', 'rule\t' + sp.fit.rule, 'weight\t' + (sp.fit.weight ? `x${sp.fit.weight.w} in ${sp.fit.weight.a}-${sp.fit.weight.b}` : 'none'),
+      lines.push('', 'module\t' + (RULES[sp.fit.rule] || sp.fit.rule), 'weight\t' + (sp.fit.weight ? `x${sp.fit.weight.w} in ${sp.fit.weight.a}-${sp.fit.weight.b}` : 'none'),
         'background\t' + (bgShown(sp) ? `${sp.bg.kind || 'shirley'}, ends = mean of ${+sp.bg.navg || 1} points, ${sp.bg.a != null && sp.bg.b != null ? `window ${sp.bg.a}-${sp.bg.b} eV` : 'whole spectrum'}; peaks fitted to intensity minus background` : 'none'),
         'peak shape\tGaussian-Lorentzian sum (pseudo-Voigt), L_percent = Lorentzian share', 'charge correction (eV)\t' + (sp.shiftOn ? sp.shift + ' (strongest C 1s peak of the file moved to ' + C_REF + ' eV)' : 'none'));
       files.push([base + '_peaks.txt', lines.join('\n') + '\n']);
