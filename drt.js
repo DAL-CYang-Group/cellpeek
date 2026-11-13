@@ -96,7 +96,7 @@ const natural = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'
 const RANGE_TOL = 0.5;                            // decades: a start / end further than this from the median of the set is flagged
 const ECM_POOR = 2.5;                             // % — as in the EIS ECM tab: 2 semicircles unless some spectra fit poorly, then 3 for all
 // S.rule: one rule for the whole set. S.touched: the user has set it (until then: 1 contact peak, diffusion peak left out when the spectra have a tail)
-const S = {spectra: [], lam: 1e-3, xlog: true, rule: {nL: 1, nR: 1}, touched: null, ecmMode: 2};
+const S = {spectra: [], lam: 1e-3, xlog: true, rule: {nL: 1, nR: 1}, touched: null, ecmMode: 3};
 let seq = 0, busy = false;
 const msg = t => { const e = $('#d_msg'); if (e) e.textContent = t || ''; };
 const eis = () => NQP.eis;
@@ -260,7 +260,7 @@ function build() {
   $('#d_from').onclick = () => { const src = eis().state().spectra.filter(q => !S.spectra.some(s => s.name === q.name)); if (!src.length) return msg('No new spectra in the EIS ECM tab'); addSpectra(src); };
   $('#d_lam').onchange = e => { const v = +e.target.value; if (!(v > 0)) { e.target.value = S.lam; return; } S.lam = v; for (const s of S.spectra) { s.drt = null; s.pk = null; } render(); compute(S.spectra.slice()); };
   $('#d_x').onchange = e => { S.xlog = e.target.value === 'log'; drawAll(); save(); };
-  $('#d_clear').onclick = () => { S.spectra = []; S.touched = null; S.refId = null; S.rule = {nL: 1, nR: 1}; S.ecmMode = 2; msg(''); render(); };
+  $('#d_clear').onclick = () => { S.spectra = []; S.touched = null; S.refId = null; S.rule = {nL: 1, nR: 1}; S.ecmMode = 3; msg(''); render(); };
   $('#d_export').onclick = exportCsv;
   let rt; new ResizeObserver(() => { if (sec.hidden) return; clearTimeout(rt); rt = setTimeout(drawAll, 80); }).observe(sec);
 }
@@ -319,7 +319,7 @@ function save() {
 async function restore() {
   try { const r = NQP.idb && await NQP.idb.get('drt');
     if (r && Array.isArray(r.spectra)) { const {seq: q, ...st} = r; Object.assign(S, st); seq = q || r.spectra.length;
-      for (const z of S.spectra) if (z.ecm && z.ecm.v !== eis().FITV) z.ecm = null;      // ECM comparison made with an older fitting method: redo
+      for (const z of S.spectra) if (z.ecm && z.ecm.v !== eis().FITV) { z.ecm = null; S.ecmMode = 3; }      // ECM comparison made with an older fitting method: redo
       if ($('#d_lam')) { $('#d_lam').value = S.lam; $('#d_x').value = S.xlog ? 'log' : 'lin'; } } } catch {}
   ready = true;
 }
