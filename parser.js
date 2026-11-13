@@ -55,7 +55,10 @@ function parseNeware(buf) {
   const sType = col(H_s, 'Step Type', 'Step Name'), sQ = col(H_s, 'Spec. Cap.(mAh/g)', 'CmpCap(mAh/g)', 'Capacity Density(mAh/g)'), sE = col(H_s, 'Spec. Energy(mWh/g)', 'CmpEng(mWh/g)', 'CmpEngergy(mWh/g)', 'CmpEnergy(mWh/g)');
   const sCap = col(H_s, 'Capacity(Ah)', 'Capacity(mAh)', 'Cap(mAh)'), capscale = H_s.includes('Capacity(Ah)') ? 1000 : 1;
   const cIdx = col(H_c, 'Cycle Index', 'Cycle ID');
-  if ([dV, dQ, sType, sQ, cIdx].includes(null)) throw new Error('required columns missing: ' + H_d.slice(0, 6).join(', '));
+  if ([dV, dQ, sType, sQ, cIdx].includes(null)) {
+    const miss = [[cIdx, 'cycle number'], [sType, 'step type'], [sQ, 'step capacity (mAh/g)'], [dV, 'voltage'], [dQ, 'data capacity (mAh/g)']].filter(x => x[0] === null).map(x => x[1]);
+    throw new Error(`this export format is not known yet (parser ${PARSER_VERSION}): no column for ${miss.join(', ')}. Step columns: ${H_s.slice(0, 7).join(', ')}. Data columns: ${H_d.slice(0, 7).join(', ')}`);
+  }
   const vscale = H_d[dV] === 'Voltage(V)' ? 1 : 1e-3;
   const nC = H_c.length, nS = H_s.length, nD = H_d.length;
   // 2022 BTS export: data rows have empty cells after Realtime, so they hold fewer values than the header; the columns used here come before those

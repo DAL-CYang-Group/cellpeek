@@ -240,7 +240,7 @@ const local = {
   },
   parseInWorker(file) {                          // up to 4 workers, so several files parse at the same time
     if (!this.workers) { const n = Math.min(4, navigator.hardwareConcurrency || 2);
-      this.workers = Array.from({length: n}, () => { const w = new Worker('parser.js');
+      this.workers = Array.from({length: n}, () => { const w = new Worker('parser.js?v=' + PV);
         w.onmessage = (ev) => { const j = this.jobs.get(ev.data.id); if (!j) return; this.jobs.delete(ev.data.id);
           ev.data.error ? j.rej(new Error(ev.data.error)) : j.res(ev.data.data); }; return w; }); }
     const id = ++this.jobId, w = this.workers[id % this.workers.length];
