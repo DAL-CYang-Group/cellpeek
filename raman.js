@@ -805,9 +805,9 @@ function exportFiles() {
   const files = [], sum = [['spectrum', 'peak', 'center', 'fwhm', 'L_percent', 'height', 'area', 'area_percent', 'R2', 'range_from', 'range_to'].join('\t')];
   for (const sp of S.spectra) {
     const r = proc(sp); if (!r) continue; const base = sp.name.replace(/[\\/:*?"<>|]/g, '_');
-    files.push([base + '_corrected.txt', r.x.map((x, i) => num(x) + '\t' + num(r.y[i])).join('\n') + '\n']);
+    files.push([base + '_corrected.txt', 'Raman shift (cm-1)\tintensity (corrected)\n' + r.x.map((x, i) => num(x) + '\t' + num(r.y[i])).join('\n') + '\n']);
     if (bgShown(sp) || sp.despike.on)
-      files.push([base + '_background.txt', r.x.map((x, i) => [x, r.raw[i], r.ds[i], r.base[i], r.y[i]].map(num).join('\t')).join('\n') + '\n']);
+      files.push([base + '_background.txt', 'Raman shift (cm-1)\traw\tdespiked\tbackground\tcorrected\n' + r.x.map((x, i) => [x, r.raw[i], r.ds[i], r.base[i], r.y[i]].map(num).join('\t')).join('\n') + '\n']);
     if (sp.fit.range && sp.fit.peaks.length) {
       const P = sp.fit.peaks, {x, y} = inRange(sp), st = fitStats(sp), tot = P.reduce((s, p) => s + area(p), 0);
       files.push([base + '_fit.txt', ['Raman shift\tcorrected\tfit\t' + P.map(p => p.name).join('\t'),
