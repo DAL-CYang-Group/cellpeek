@@ -96,7 +96,7 @@ const natural = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'
 const RANGE_TOL = 0.5;                            // decades: a start / end further than this from the median of the set is flagged
 const ECM_POOR = 2.5;                             // % — as in the EIS ECM tab: 2 semicircles unless some spectra fit poorly, then 3 for all
 // S.rule: one rule for the whole set. S.touched: the user has set it (until then: 1 contact peak, diffusion peak left out when the spectra have a tail)
-const S = {spectra: [], lam: 1e-3, xlog: true, rule: {nL: 1, nR: 1}, touched: null, ecmMode: 3};
+const S = {spectra: [], lam: 1e-3, ylog: false, rule: {nL: 1, nR: 1}, touched: null, ecmMode: 3};
 let seq = 0, busy = false;
 const msg = t => { const e = $('#d_msg'); if (e) e.textContent = t || ''; };
 const eis = () => NQP.eis;
@@ -171,22 +171,24 @@ function axes() {
   return {a, b, g: g * 1.08 || 1};
 }
 const GEO = {L: 62, R: 16, T: 8, B: 40, H: 190};
-function mapX(ax, W) { const pw = W - GEO.L - GEO.R;
-  if (S.xlog) return {X: lt => GEO.L + (lt - ax.a) / (ax.b - ax.a) * pw, inv: px => ax.a + (px - GEO.L) / pw * (ax.b - ax.a), pw};
-  const t1 = Math.exp(ax.b); return {X: lt => GEO.L + Math.exp(lt) / t1 * pw, inv: px => Math.log(Math.max(1e-300, (px - GEO.L) / pw * t1)), pw}; }
+const YDEC = 3;                                  // decades shown below the top of a logarithmic γ axis
+function mapX(ax, W) { const pw = W - GEO.L - GEO.R;       // τ axis: always logarithmic
+  return {X: lt => GEO.L + (lt - ax.a) / (ax.b - ax.a) * pw, inv: px => ax.a + (px - GEO.L) / pw * (ax.b - ax.a), pw}; }
 function draw(cv, s, ax, res) {
   const W = cv.parentElement.clientWidth || 600, r = window.devicePixelRatio || 1, {L, T, B, H} = GEO, ph = H - T - B, mp = mapX(ax, W), pw = mp.pw;
   cv.width = W * r; cv.height = H * r; cv.style.width = W + 'px'; cv.style.height = H + 'px';
   const g = cv.getContext('2d'); g.setTransform(r, 0, 0, r, 0, 0); g.clearRect(0, 0, W, H);
-  const Y = v => T + ph - v / ax.g * ph, X = mp.X;
+  const yHi = Math.log10(ax.g), yLo = Math.floor(yHi) - YDEC + (yHi - Math.floor(yHi) < 0.15 ? 0 : 1);          // log γ axis: from a power of ten, about YDEC decades below the top
+  const Y = S.ylog ? v => v > 0 ? Math.min(T + ph, T + ph - (Math.log10(v) - yLo) / (yHi - yLo) * ph) : T + ph   // γ = 0 (and anything below the axis) sits on the bottom line
+    : v => T + ph - v / ax.g * ph, X = mp.X;
   g.font = '12px -apple-system, "Segoe UI", sans-serif'; g.fillStyle = '#1d2329'; g.strokeStyle = '#c9ced5'; g.lineWidth = 1;
   g.strokeRect(L + .5, T + .5, pw, ph); g.beginPath(); g.textAlign = 'center'; g.textBaseline = 'top';
-  if (S.xlog) { for (let e = Math.ceil(ax.a / Math.LN10); e <= Math.floor(ax.b / Math.LN10); e++) { const x = Math.round(X(e * Math.LN10)) + .5; g.moveTo(x, T + ph); g.lineTo(x, T + ph - 5);
-      g.fillText('10', x - 4, T + ph + 8); g.font = '9px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'left'; g.fillText(String(e).replace('-', '−'), x + 3, T + ph + 4); g.font = '12px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'center'; } }
-  else { const t1 = Math.exp(ax.b), n = Math.max(3, pw / 90), raw = t1 / n, p10 = Math.pow(10, Math.floor(Math.log10(raw))), fr = raw / p10, st = (fr < 1.5 ? 1 : fr < 3.5 ? 2 : fr < 7.5 ? 5 : 10) * p10;
-    for (let v = 0; v <= t1 * 1.0001; v += st) { const x = Math.round(L + v / t1 * pw) + .5; g.moveTo(x, T + ph); g.lineTo(x, T + ph - 5); g.fillText(String(+v.toPrecision(3)), x, T + ph + 6); } }
+  for (let e = Math.ceil(ax.a / Math.LN10); e <= Math.floor(ax.b / Math.LN10); e++) { const x = Math.round(X(e * Math.LN10)) + .5; g.moveTo(x, T + ph); g.lineTo(x, T + ph - 5);
+      g.fillText('10', x - 4, T + ph + 8); g.font = '9px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'left'; g.fillText(String(e).replace('-', '−'), x + 3, T + ph + 4); g.font = '12px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'center'; }
   g.textAlign = 'right'; g.textBaseline = 'middle';
-  { const raw = ax.g / 3.5, p10 = Math.pow(10, Math.floor(Math.log10(raw))), fr = raw / p10, st = (fr < 1.5 ? 1 : fr < 3.5 ? 2 : fr < 7.5 ? 5 : 10) * p10, dec = Math.max(0, -Math.floor(Math.log10(st) + 1e-9));
+  if (S.ylog) { for (let e = yLo; e <= Math.floor(yHi + 1e-9); e++) { const y = Math.round(Y(Math.pow(10, e))) + .5; g.moveTo(L, y); g.lineTo(L + 5, y);
+      g.fillText('10', L - 14, y + 2); g.font = '9px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'left'; g.fillText(String(e).replace('-', '−'), L - 13, y - 4); g.font = '12px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'right'; } }
+  else { const raw = ax.g / 3.5, p10 = Math.pow(10, Math.floor(Math.log10(raw))), fr = raw / p10, st = (fr < 1.5 ? 1 : fr < 3.5 ? 2 : fr < 7.5 ? 5 : 10) * p10, dec = Math.max(0, -Math.floor(Math.log10(st) + 1e-9));
     for (let v = 0; v <= ax.g; v += st) { const y = Math.round(Y(v)) + .5; g.moveTo(L, y); g.lineTo(L + 5, y); g.fillText(v.toFixed(dec), L - 6, y); } }
   g.stroke();
   g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillText('τ (s)', L + pw / 2, H - 6);
@@ -231,7 +233,7 @@ function build() {
       <span class="ic">⇣</span><span><b>Drop EIS files here</b><br><u>or click to choose files…</u></span></label>
     <button type="button" id="d_from" title="Use the spectra that are loaded in the EIS ECM tab">Take the EIS ECM spectra</button>
     <label title="Regularisation parameter of the DRT; one value for the whole set">λ <input type="text" id="d_lam" value="1e-3" style="width:64px"></label>
-    <label>τ axis <select id="d_x"><option value="log">log</option><option value="lin">linear</option></select></label>
+    <label title="Vertical axis of the plots. The τ axis is always logarithmic.">γ axis <select id="d_y"><option value="lin">linear</option><option value="log">log</option></select></label>
     <span class="sp"></span>
     <button type="button" id="d_clear">Clear</button>
     <button type="button" id="d_export" class="primary" title="Table with R_contact and R_ct of every spectrum">Export results</button>`;
@@ -247,7 +249,7 @@ function build() {
         <div id="d_tab"></div>
         <div class="note">Areas under γ(ln τ) between its minima. Grey: contact peak(s), left out. Blue: the R_ct range. Orange: diffusion, left out.
           To change the range, double-click near a minimum (dashed line) on any plot, or drag from left to right; the limits snap to the nearest minimum and the same rule is applied to every spectrum.
-          ECM: R_ct from the equivalent-circuit fit of the EIS ECM tab, for comparison.</div>
+          ECM: R_ct from the equivalent-circuit fit as in the EIS ECM tab, for comparison; here always with all points and an inductor.</div>
       </div>
     </div>`;
   $('#d_file').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
@@ -259,7 +261,7 @@ function build() {
   }
   $('#d_from').onclick = () => { const src = eis().state().spectra.filter(q => !S.spectra.some(s => s.name === q.name)); if (!src.length) return msg('No new spectra in the EIS ECM tab'); addSpectra(src); };
   $('#d_lam').onchange = e => { const v = +e.target.value; if (!(v > 0)) { e.target.value = S.lam; return; } S.lam = v; for (const s of S.spectra) { s.drt = null; s.pk = null; } render(); compute(S.spectra.slice()); };
-  $('#d_x').onchange = e => { S.xlog = e.target.value === 'log'; drawAll(); save(); };
+  $('#d_y').onchange = e => { S.ylog = e.target.value === 'log'; drawAll(); save(); };
   $('#d_clear').onclick = () => { S.spectra = []; S.touched = null; S.refId = null; S.rule = {nL: 1, nR: 1}; S.ecmMode = 3; msg(''); render(); };
   $('#d_export').onclick = exportCsv;
   let rt; new ResizeObserver(() => { if (sec.hidden) return; clearTimeout(rt); rt = setTimeout(drawAll, 80); }).observe(sec);
@@ -279,7 +281,7 @@ function renderTable() {
       <td title="${r && r.adjusted && !r.off ? 'Counting peaks put a limit far from where it is for the rest of the set, so the nearest minimum was used' : r && r.off ? `start ${r.dStart >= 0 ? '+' : ''}${r.dStart.toFixed(2)}, end ${r.dEnd >= 0 ? '+' : ''}${r.dEnd.toFixed(2)} decades from the reference` : ''}" style="${r && r.off ? 'color:#b00;font-weight:600' : r && r.adjusted ? 'color:#d97706' : 'color:var(--muted)'}">${r ? (r.off ? 'check' : r.adjusted ? 'adjusted' : 'ok') : ''}</td>
       <td class="x" title="Remove">✕</td></tr>`; }).join('');
   $('#d_tab').innerHTML = S.spectra.length ? `<table class="pk"><thead><tr><th>Spectrum</th><th style="text-align:right">R_contact<br>(Ω)</th><th style="text-align:right">R_ct DRT<br>(Ω)</th>
-      <th style="text-align:right" title="Equivalent-circuit fit, ${S.ecmMode} semicircles for the whole set">R_ct ECM<br>(${S.ecmMode} semic.)</th><th style="text-align:right" title="DRT relative to ECM">Δ<br>(%)</th>
+      <th style="text-align:right" title="Equivalent-circuit fit, ${S.ecmMode} semicircles for the whole set; all points are fitted, with an inductor (the box &quot;leave out inductive points&quot; of the EIS ECM tab does not apply here)">R_ct ECM<br>(${S.ecmMode} semic., with L)</th><th style="text-align:right" title="DRT relative to ECM">Δ<br>(%)</th>
       <th title="Whether the start and the end of the range sit where they do for the rest of the set">range</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="gmuted" style="padding:8px 2px">No spectra yet.</div>';
   $('#d_tab').querySelectorAll('tr[data-id]').forEach(tr => { const q = S.spectra.find(z => z.id === tr.dataset.id);
@@ -318,9 +320,9 @@ function save() {
 }
 async function restore() {
   try { const r = NQP.idb && await NQP.idb.get('drt');
-    if (r && Array.isArray(r.spectra)) { const {seq: q, ...st} = r; Object.assign(S, st); seq = q || r.spectra.length;
+    if (r && Array.isArray(r.spectra)) { const {seq: q, ...st} = r; delete st.xlog; Object.assign(S, st); S.ylog = !!S.ylog; seq = q || r.spectra.length;
       for (const z of S.spectra) if (z.ecm && z.ecm.v !== eis().FITV) { z.ecm = null; S.ecmMode = 3; }      // ECM comparison made with an older fitting method: redo
-      if ($('#d_lam')) { $('#d_lam').value = S.lam; $('#d_x').value = S.xlog ? 'log' : 'lin'; } } } catch {}
+      if ($('#d_lam')) { $('#d_lam').value = S.lam; $('#d_y').value = S.ylog ? 'log' : 'lin'; } } } catch {}
   ready = true;
 }
 window.addEventListener('DOMContentLoaded', async () => { build(); await restore(); render(); if (S.spectra.length) compute(S.spectra.filter(s => !s.drt)); window.addEventListener('cellpeek:tab', () => render()); });
