@@ -213,8 +213,10 @@ function fitStats(sp) {
   const {x, y} = inRange(sp); if (!x.length) return null;
   let mean = 0; for (const v of y) mean += v; mean /= y.length;
   let ss = 0, st = 0; for (let i = 0; i < x.length; i++) { let f = 0; for (const p of sp.fit.peaks) f += pv(x[i], p); ss += (y[i] - f) ** 2; st += (y[i] - mean) ** 2; }
-  return {r2: 1 - ss / st};
+  return {r2: 1 - ss / st, noise: Math.sqrt(ss / x.length)};       // noise: standard deviation of (corrected − fit) in the fit range
 }
+const snr = (p, st) => st && st.noise > 0 ? p.h / st.noise : NaN;   // signal-to-noise ratio of a peak: height / noise
+const snrTxt = v => !isFinite(v) ? '' : v >= 100 ? v.toFixed(0) : v.toFixed(1);
 function weights(sp, x) { const W = sp.fit.weight; return W ? x.map(v => v >= W.a && v <= W.b ? W.w : 1) : null; }
 function runFit(sp, opt = {}) {
   if (!sp || !sp.fit.range || !sp.fit.peaks.length) return;
@@ -426,6 +428,22 @@ function build() {
     const end = () => { if (!drag) return; drag = false; h.classList.remove('on'); try { if (h._f) localStorage.setItem('nqp_rsplit', h._f.toFixed(3)); } catch {} };
     h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
     h.addEventListener('dblclick', () => { setF(null); h._f = 0; try { localStorage.removeItem('nqp_rsplit'); } catch {} });
+  }
+  for (const [id, key, redraw] of [['#wf_cv', 'wf', () => drawWf()], ['#ft_cv', 'ft', () => drawFit()]]) {
+    const host = $(id).parentElement, g = document.createElement('div'); g.className = 'pgrip'; g.title = 'Drag to make this plot narrower or wider · double-click: full width';
+    host.style.position = 'relative'; host.appendChild(g);
+    const saved = () => { try { return JSON.parse(localStorage.getItem('nqp_rplotw')) || {}; } catch { return {}; } };
+    const keep = w => { try { const o = saved(); if (w) o[key] = w; else delete o[key]; localStorage.setItem('nqp_rplotw', JSON.stringify(o)); } catch {} };
+    const setW = w => { if (w) host.style.width = w + 'px'; else host.style.removeProperty('width'); redraw(); };
+    { const w = +saved()[key]; if (w >= 240) host.style.width = w + 'px'; }
+    let drag = false, raf = 0, last = 0;
+    g.addEventListener('pointerdown', e => { drag = true; g.classList.add('on'); g.setPointerCapture(e.pointerId); e.preventDefault(); e.stopPropagation(); });
+    g.addEventListener('pointermove', e => { if (!drag) return; const full = host.parentElement.clientWidth - 24;
+      last = Math.round(Math.min(full, Math.max(240, e.clientX - host.getBoundingClientRect().left + 8)));
+      cancelAnimationFrame(raf); raf = requestAnimationFrame(() => setW(last)); });
+    const end = () => { if (!drag) return; drag = false; g.classList.remove('on'); if (last) keep(last); };
+    g.addEventListener('pointerup', end); g.addEventListener('pointercancel', end);
+    g.addEventListener('dblclick', e => { e.stopPropagation(); last = 0; keep(0); setW(0); });
   }
   $('#r_export').onclick = exportAll;
   $('#wf_view').onchange = e => { S.wf.view = e.target.value; commit('Waterfall: show ' + e.target.value); };
@@ -710,14 +728,14 @@ function renderSide() {
   box.innerHTML = `
     <div class="r2">R² = <b>${st ? st.r2.toFixed(4) : '—'}</b>${sp.fit.weight ? ` <span class="gmuted">· residuals weighted ×${sp.fit.weight.w} in ${sp.fit.weight.a}–${sp.fit.weight.b} cm⁻¹</span>` : ''}</div>
     <table class="pk"><thead><tr><th></th><th>Peak</th><th title="Peak position">Center</th><th title="Full width at half maximum">FWHM</th>
-      <th title="Lorentzian fraction: 0 = pure Gaussian, 100 = pure Lorentzian; tick = let the fit change it">L % · fit</th><th>Height</th><th>Area</th><th>%</th><th title="Lock position and width">🔒</th><th></th></tr></thead>
+      <th title="Lorentzian fraction: 0 = pure Gaussian, 100 = pure Lorentzian; tick = let the fit change it">L % · fit</th><th>Height</th><th>Area</th><th>%</th><th title="Signal-to-noise ratio: peak height ÷ noise. Noise = standard deviation of (corrected − fit) in the fit range">S/N</th><th title="Lock position and width">🔒</th><th></th></tr></thead>
     <tbody>${P.map((p, k) => `<tr data-id="${p.id}" class="${p.id === ACTIVE ? 'on' : ''}">
       <td><span class="sw" style="background:${p.color}"></span></td>
       <td><input data-f="name" value="${esc(p.name)}" class="nm"></td>
       <td><input data-f="c" type="number" step="0.5" value="${f1(p.c)}" title="${limTxt(p, 'c')}" class="${lim(p, 'c') ? 'lk' : ''}"></td>
       <td><input data-f="w" type="number" step="0.5" value="${f1(p.w)}" title="${limTxt(p, 'w')}" class="${lim(p, 'w') ? 'lk' : ''}"></td>
       <td><input data-f="eta" type="number" step="5" min="0" max="100" value="${f1(p.eta * 100, 0)}" title="${p.etaFree ? 'fitted' : 'fixed'}${lim(p, 'eta') ? ' · ' + limTxt(p, 'eta') : ''}"><label class="ef" title="Let the fit change L %"><input type="checkbox" data-f="etaFree" ${p.etaFree ? 'checked' : ''}></label></td>
-      <td class="ro">${tfmt(+p.h.toPrecision(4))}</td><td class="ro">${tfmt(+area(p).toPrecision(4))}</td><td class="ro">${tot ? (100 * area(p) / tot).toFixed(1) : ''}</td>
+      <td class="ro">${tfmt(+p.h.toPrecision(4))}</td><td class="ro">${tfmt(+area(p).toPrecision(4))}</td><td class="ro">${tot ? (100 * area(p) / tot).toFixed(1) : ''}</td><td class="ro">${snrTxt(snr(p, st))}</td>
       <td><input type="checkbox" data-f="lock" ${p.lock ? 'checked' : ''}></td><td><span class="x" title="Delete peak">✕</span></td></tr>`).join('')}</tbody></table>
     ${P.length ? '' : `<div class="gmuted" style="padding:6px 2px">${mode() === 'fit' ? 'Double-click on the plot to add the first peak, or choose a rule.' : 'Choose the fitting range first.'}</div>`}
     <div class="ratios"><div class="rh">Area ratios <button type="button" id="rt_add" ${P.length ? '' : 'disabled'}>+ ratio</button></div>
@@ -802,7 +820,7 @@ async function restore() {
 // ---------------- export ----------------
 const num = v => String(+(+v).toPrecision(7));
 function exportFiles() {
-  const files = [], sum = [['spectrum', 'peak', 'center', 'fwhm', 'L_percent', 'height', 'area', 'area_percent', 'R2', 'range_from', 'range_to'].join('\t')];
+  const files = [], sum = [['spectrum', 'peak', 'center', 'fwhm', 'L_percent', 'height', 'area', 'area_percent', 'SNR', 'R2', 'range_from', 'range_to'].join('\t')];
   for (const sp of S.spectra) {
     const r = proc(sp); if (!r) continue; const base = sp.name.replace(/[\\/:*?"<>|]/g, '_');
     files.push([base + '_corrected.txt', 'Raman shift (cm-1)\tintensity (corrected)\n' + r.x.map((x, i) => num(x) + '\t' + num(r.y[i])).join('\n') + '\n']);
@@ -812,10 +830,10 @@ function exportFiles() {
       const P = sp.fit.peaks, {x, y} = inRange(sp), st = fitStats(sp), tot = P.reduce((s, p) => s + area(p), 0);
       files.push([base + '_fit.txt', ['Raman shift\tcorrected\tfit\t' + P.map(p => p.name).join('\t'),
         ...x.map((xx, i) => { const c = P.map(p => pv(xx, p)); return [xx, y[i], c.reduce((a, b) => a + b, 0), ...c].map(num).join('\t'); })].join('\n') + '\n']);
-      const lines = ['peak\tcenter\tfwhm\tL_percent\theight\tarea\tarea_percent'];
-      for (const p of P) { const row = [p.name, num(p.c), num(p.w), num(p.eta * 100), num(p.h), num(area(p)), num(100 * area(p) / tot)];
+      const lines = ['peak\tcenter\tfwhm\tL_percent\theight\tarea\tarea_percent\tSNR'];
+      for (const p of P) { const row = [p.name, num(p.c), num(p.w), num(p.eta * 100), num(p.h), num(area(p)), num(100 * area(p) / tot), num(snr(p, st))];
         lines.push(row.join('\t')); sum.push([sp.name, ...row, num(st.r2), num(sp.fit.range[0]), num(sp.fit.range[1])].join('\t')); }
-      lines.push('', 'R2\t' + num(st.r2), 'range\t' + num(sp.fit.range[0]) + '\t' + num(sp.fit.range[1]));
+      lines.push('', 'R2\t' + num(st.r2), 'noise\t' + num(st.noise) + '\tstandard deviation of (corrected - fit) in the fit range; SNR = peak height / noise', 'range\t' + num(sp.fit.range[0]) + '\t' + num(sp.fit.range[1]));
       for (const q of sp.fit.ratios) lines.push(ratioName(sp, q) + '\t' + num(ratioVal(sp, q)));
       lines.push('', 'rule\t' + sp.fit.rule, 'weight\t' + (sp.fit.weight ? `x${sp.fit.weight.w} in ${sp.fit.weight.a}-${sp.fit.weight.b}` : 'none'),
         'despike\t' + (sp.despike.on ? sp.despike.thr + ' x MAD (2nd difference)' : 'off'), 'background\t' + (bgDone(sp) ? 'arPLS lambda ' + sp.bg.lam : bgShown(sp) ? 'arPLS lambda ' + sp.bg.lam + ' (shown only, not subtracted)' : 'none'),

@@ -182,6 +182,10 @@
   .rsplit { position:absolute; top:0; bottom:0; right:-12px; width:12px; cursor:col-resize; z-index:6; touch-action:none; }   /* drag: width of the spectra card */
   .rsplit::after { content:''; position:absolute; top:50%; left:4px; width:4px; height:44px; margin-top:-22px; border-radius:2px; background:#c3cad3; }
   .rsplit:hover::after, .rsplit.on::after { background:var(--accent); }
+  .rgrid .mod .plot { max-width:100%; }
+  .pgrip { position:absolute; top:16px; bottom:56px; right:0; width:14px; cursor:ew-resize; z-index:5; touch-action:none; }   /* drag: width of this plot */
+  .pgrip::after { content:''; position:absolute; top:50%; left:5px; width:4px; height:44px; margin-top:-22px; border-radius:2px; background:#c3cad3; }
+  .pgrip:hover::after, .pgrip.on::after { background:var(--accent); }
   @media (max-width: 1100px) { .rgrid { grid-template-columns:minmax(0, 1fr); } .rsplit { display:none; } }
   .rgrid .mod, .rgrid .mod input, .rgrid .mod select, .rgrid .mod button { font-size:13px; }
   .rgrid .mod .bar { min-height:32px; flex-wrap:nowrap; } .rgrid .mod .bar .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:60px; }
