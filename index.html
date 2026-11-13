@@ -174,10 +174,10 @@
   .rgrid { display:grid; grid-template-columns:minmax(0, var(--rl, 1fr)) minmax(0, var(--rr, 1fr)); gap:12px; padding:8px 16px 40px; align-items:start; }
   /* EIS: plots one below the other on the left, results table fixed on the right */
   .egrid { display:grid; grid-template-columns:minmax(0, 3fr) minmax(300px, 2fr); gap:12px; padding:8px 16px 40px; align-items:start; }
-  .egrid #e_plots { display:grid; gap:10px; } .egrid .mod .bar .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:80px; }
+  .egrid #e_plots, .egrid #d_plots { display:grid; gap:10px; } .egrid .mod .bar .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:80px; }
   .egrid .mod .bar { flex-wrap:nowrap; } .egrid .mod .bar .opts { white-space:nowrap; flex-wrap:nowrap; font-size:13px; } .egrid .mod canvas { display:block; }
-  .egrid #e_res { position:sticky; top:calc(var(--toph, 120px) + 8px); max-height:calc(100vh - var(--toph, 120px) - 16px); overflow-y:auto; }
-  @media (max-width: 1000px) { .egrid { grid-template-columns:minmax(0, 1fr); } .egrid #e_res { position:static; max-height:none; order:-1; } }
+  .egrid #e_res, .egrid #d_res { position:sticky; top:calc(var(--toph, 120px) + 8px); max-height:calc(100vh - var(--toph, 120px) - 16px); overflow-y:auto; }
+  @media (max-width: 1000px) { .egrid { grid-template-columns:minmax(0, 1fr); } .egrid #e_res, .egrid #d_res { position:static; max-height:none; order:-1; } }
   .rgrid .rwf { position:relative; }
   .rsplit { position:absolute; top:0; bottom:0; right:-12px; width:12px; cursor:col-resize; z-index:6; touch-action:none; }   /* drag: width of the spectra card */
   .rsplit::after { content:''; position:absolute; top:50%; left:4px; width:4px; height:44px; margin-top:-22px; border-radius:2px; background:#c3cad3; }
@@ -241,6 +241,7 @@
     <button type="button" role="tab" data-tab="neware">Neware Cycling</button>
     <button type="button" role="tab" data-tab="raman">Raman Fitting</button>
     <button type="button" role="tab" data-tab="eis">EIS ECM</button>
+    <button type="button" role="tab" data-tab="drt">EIS DRT</button>
   </nav>
   <span id="hdrsp"></span>
   <button id="fbbtn" hidden title="Report a bug or send a suggestion">Feedback</button>
@@ -261,6 +262,8 @@
 <div class="toolbar" data-pane="raman" hidden>
 </div>
 <div class="toolbar" data-pane="eis" hidden>
+</div>
+<div class="toolbar" data-pane="drt" hidden>
 </div>
 </div>
 <div id="banner" hidden></div>
@@ -287,6 +290,8 @@
 </section>
 <section data-pane="eis" hidden>
 </section>
+<section data-pane="drt" hidden>
+</section>
 
 <script src="static/uPlot.iife.min.js"></script>
 <script src="config.js?v=0.2.3"></script>
@@ -295,6 +300,7 @@
 <script src="auth.js?v=0.2.3"></script>
 <script src="raman.js?v=0.2.3"></script>
 <script src="eis.js?v=0.2.3"></script>
+<script src="drt.js?v=0.2.3"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
