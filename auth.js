@@ -12,6 +12,7 @@ const LS = {get: k => { try { return JSON.parse(localStorage.getItem(k)); } catc
 const deviceId = () => { let d = LS.get('nqp_device'); if (!d) { d = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()); LS.set('nqp_device', d); } return d; };
 const auth = () => LS.get('nqp_auth') || {};
 let USER = null;
+NQP.isSuper = () => !!(USER && USER.super);
 
 async function call(action, payload = {}) {
   const r = await fetch(C.APPS_SCRIPT_URL, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'},
