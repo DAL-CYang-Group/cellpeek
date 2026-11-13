@@ -140,12 +140,15 @@ function fitCfg(d, sh, cfg) {
   return {cfg, o, cost: ss, err: 100 * Math.sqrt(ss / n), bic: N2 * Math.log(ss / N2 + 1e-300) + k * Math.log(N2)};
 }
 // opt = {n: 'auto'|2|3, tail: 'auto'|'on'|'off'}
-// All measured points are used, the inductive ones at the high-frequency end too (an inductor is in the model then).
-// (Version 2 left the inductive points out: smaller fit error, but R_HFI and R_contact changed with it.)
+// Inductive points at the high-frequency end (−Z″ < 0: cables, cell hardware), two ways, chosen with opt.inductive:
+//   'fit'  (default) — all measured points are used and an inductor is in the model
+//   'skip'           — these points are left out of the fit and the model has no inductor (nSkip = number of points left out).
+//                      Smaller fit error, because there Z′ changes with frequency too, which an ideal inductor cannot follow; R_HFI and R_contact change with it.
 const FITV = 3;                                  // version of the fitting method (stored fits of an older version are redone)
-function fitSpectrum(d, opt = {}) {
-  const nSkip = 0;
-  const sh = shape(d), tail = opt.tail === 'on' ? true : opt.tail === 'off' ? false : sh.tail, L = sh.inductive;
+function fitSpectrum(d0, opt = {}) {
+  const k0 = opt.inductive === 'skip' ? shape(d0).iInd : 0, nSkip = k0 > 0 && d0.f.length - k0 >= 10 ? k0 : 0;
+  const d = nSkip ? {f: d0.f.slice(nSkip), zr: d0.zr.slice(nSkip), zi: d0.zi.slice(nSkip)} : d0;
+  const sh = shape(d), tail = opt.tail === 'on' ? true : opt.tail === 'off' ? false : sh.tail, L = nSkip ? false : sh.inductive;
   const run = n => fitCfg(d, sh, {n, tail, L});
   let fit, note = '';
   if (opt.n === 2 || opt.n === 3) fit = run(opt.n);
@@ -178,8 +181,8 @@ const esc = t => String(t ?? '').replace(/[&<>"]/g, ch => ({'&': '&amp;', '<': '
 const ARC_COL = ['#8c8c8c', '#1f77b4', '#2ca02c'];           // contact, then the R_ct semicircle(s)
 const POOR = 2.5;                                            // fit error (%) above which a fit is marked as poor
 // One data set = the spectra of one cell over time. Rule: the whole set is fitted with the same model —
-// 3 semicircles by default (as in the group's RelaxIS fits); 2 can be chosen. The tail is judged per spectrum.
-const S = {spectra: [], mode: 3, area: '', sym: false};      // spectrum: {id, name, f, zr, zi, fit}
+// 3 semicircles by default; 2 can be chosen. The tail is judged per spectrum.
+const S = {spectra: [], mode: 3, area: '', sym: false, skipL: false};      // skipL: leave the inductive points out of the fit      // spectrum: {id, name, f, zr, zi, fit}
 let seq = 0, busy = false;
 const unit = () => (+S.area > 0 ? 'Ω cm²' : 'Ω');
 const scale = () => (+S.area > 0 ? +S.area : 1) * (S.sym ? 0.5 : 1);      // area-specific; a symmetric cell holds two identical electrodes
@@ -207,7 +210,7 @@ function fitQueue(list) {                         // one spectrum at a time, so 
     if (i >= list.length || mode !== S.mode) { busy = false; if (mode === S.mode) msg(total ? `Fitted ${total} spectr${total === 1 ? 'um' : 'a'} with ${S.mode} semicircles` : ''); render();
       const m = fitQueue.more; fitQueue.more = null; if (m && m.length) fitQueue(m.filter(s => !s.fit)); return; }
     const s = list[i++]; msg(`Fitting ${i} / ${total} …`);
-    if (!s.fit) { try { s.fit = fitSpectrum(s, {n: mode, tail: 'auto'}) || {failed: true}; } catch (e) { s.fit = {failed: true, note: e.message}; } }
+    if (!s.fit) { try { s.fit = fitSpectrum(s, {n: mode, tail: 'auto', inductive: S.skipL ? 'skip' : 'fit'}) || {failed: true}; } catch (e) { s.fit = {failed: true, note: e.message}; } }
     renderRow(s); setTimeout(step, 0);
   };
   setTimeout(step, 0);
@@ -277,6 +280,7 @@ function build() {
     <label title="The same model is used for every spectrum of the set">model <select id="e_mode"><option value="3">3 semicircles</option><option value="2">2 semicircles</option></select></label>
     <label>electrode area <input type="number" id="e_area" min="0" step="any" style="width:70px" placeholder="—"> cm²</label>
     <label title="Two identical electrodes: values are divided by two"><input type="checkbox" id="e_sym"> symmetric cell (÷ 2)</label>
+    <label title="Off: all points are fitted, with an inductor in the model. On: the points with −Z″ &lt; 0 at the high-frequency end are not used (drawn in light grey) and the model has no inductor. Applies to the whole set."><input type="checkbox" id="e_skipl"> leave out inductive points</label>
     <span class="sp"></span>
     <button type="button" id="e_clear">Clear</button>
     <button type="button" id="e_export" class="primary" title="Table with R_HFI and R_ct of every spectrum">Export results</button>`;
@@ -288,7 +292,7 @@ function build() {
       <div class="mod" id="e_res">
         <div class="bar"><span class="t">Results</span><span class="opts gmuted" id="e_sum"></span></div>
         <div id="e_tab"></div>
-        <div class="note">R_HFI: high-frequency intercept with the Z′ axis. R_ct: summed diameters of the semicircle(s) after the first one. The first, highest-frequency semicircle (grey, contact) is not included. Width: contact + R_ct, the whole span of the semicircles. Inductive points at the high-frequency end (−Z″ &lt; 0) are fitted with an inductor. The tail is detected for each spectrum.</div>
+        <div class="note">R_HFI: high-frequency intercept with the Z′ axis. R_ct: summed diameters of the semicircle(s) after the first one. The first, highest-frequency semicircle (grey, contact) is not included. Width: contact + R_ct, the whole span of the semicircles. Inductive points at the high-frequency end (−Z″ &lt; 0) are fitted with an inductor, or left out (light grey) when that box is ticked. The tail is detected for each spectrum.</div>
       </div>
     </div>`;
   $('#e_file').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
@@ -301,6 +305,7 @@ function build() {
   $('#e_mode').onchange = e => { S.mode = +e.target.value; refitAll(); };
   $('#e_area').oninput = e => { S.area = e.target.value; render(); };
   $('#e_sym').onchange = e => { S.sym = e.target.checked; render(); };
+  $('#e_skipl').onchange = e => { S.skipL = e.target.checked; if (NQP.log) NQP.log('eis_inductive', {skip: S.skipL}); refitAll(); };
   $('#e_clear').onclick = () => { S.spectra = []; S.mode = 3; msg(''); render(); };
   $('#e_export').onclick = exportCsv;
   let rt; new ResizeObserver(() => { if (sec.hidden) return; clearTimeout(rt); rt = setTimeout(drawAll, 80); }).observe(sec);
@@ -330,7 +335,7 @@ function renderTable() {
   $('#e_tab').querySelectorAll('tr[data-id]').forEach(tr => { const q = S.spectra.find(z => z.id === tr.dataset.id);
     tr.onclick = e => { if (e.target.classList.contains('x')) { S.spectra = S.spectra.filter(z => z !== q); render(); } else { const c = $('#card_' + q.id); if (c) c.scrollIntoView({behavior: 'smooth', block: 'center'}); } }; });
   const done = S.spectra.filter(good), poor = done.filter(q => q.fit.err > POOR), failed = S.spectra.filter(q => q.fit && q.fit.failed);
-  $('#e_sum').textContent = S.spectra.length ? `${S.mode} semicircles · ${done.length} / ${S.spectra.length} fitted` : '';
+  $('#e_sum').textContent = S.spectra.length ? `${S.mode} semicircles · ${S.skipL ? 'inductive points left out · ' : ''}${done.length} / ${S.spectra.length} fitted` : '';
   const w = $('#e_warn'), n = poor.length + failed.length, all = S.spectra.every(q => q.fit);
   if (n && all) { w.hidden = false;
     w.innerHTML = S.mode === 2 ? `<b>${n} of ${S.spectra.length} spectra fit poorly with 2 semicircles</b> (marked red). The whole set should then use 3 semicircles. <button type="button" id="e_to3" class="primary" style="margin-left:8px;padding:3px 12px">Use 3 semicircles for all</button>`
@@ -351,8 +356,8 @@ function render() {
 function exportCsv() {
   if (!S.spectra.length) return msg('Nothing to export');
   const k = scale(), u = unit().replace('Ω', 'ohm').replace('²', '2'), n7 = v => String(+(+v).toPrecision(6));
-  const rows = [['spectrum', `R_HFI (${u})`, `R_ct (${u})`, `semicircle width = R_contact + R_ct (${u})`, `R_contact (${u})`, 'semicircles', 'diffusion tail', 'fit error (%), points with -Z\'\' >= 0', 'fit error (%), all points']];
-  for (const q of S.spectra) { const t = good(q); rows.push([q.name, t ? n7(t.R_HFI * k) : '', t ? n7(t.R_ct * k) : '', t ? n7((t.R_contact + t.R_ct) * k) : '', t ? n7(t.R_contact * k) : '', S.mode, t ? (t.tail ? 'yes' : 'no') : '', t ? t.err.toFixed(2) : 'failed', t && t.errAll != null ? t.errAll.toFixed(2) : '']); }
+  const rows = [['spectrum', `R_HFI (${u})`, `R_ct (${u})`, `semicircle width = R_contact + R_ct (${u})`, `R_contact (${u})`, 'semicircles', 'diffusion tail', 'fit error (%), points with -Z\'\' >= 0', 'fit error (%), all points', 'inductive points']];
+  for (const q of S.spectra) { const t = good(q); rows.push([q.name, t ? n7(t.R_HFI * k) : '', t ? n7(t.R_ct * k) : '', t ? n7((t.R_contact + t.R_ct) * k) : '', t ? n7(t.R_contact * k) : '', S.mode, t ? (t.tail ? 'yes' : 'no') : '', t ? t.err.toFixed(2) : 'failed', t && t.errAll != null ? t.errAll.toFixed(2) : '', t ? (t.nSkip ? `${t.nSkip} left out` : t.L ? 'fitted with an inductor' : 'none') : '']); }
   const csv = rows.map(r => r.map(c => /[",\n]/.test(String(c)) ? '"' + String(c).replace(/"/g, '""') + '"' : c).join(',')).join('\r\n') + '\r\n';
   const d = new Date(), stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], {type: 'text/csv'})); a.download = `${stamp}_EIS_RHFI_Rct.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -363,13 +368,13 @@ function exportCsv() {
 let saveT = null, ready = false;
 function save() {
   if (!ready || !NQP.idb) return;
-  clearTimeout(saveT); saveT = setTimeout(() => { NQP.idb.set('eis', {spectra: S.spectra, mode: S.mode, area: S.area, sym: S.sym, seq, fv: FITV}).catch(() => {}); }, 600);
+  clearTimeout(saveT); saveT = setTimeout(() => { NQP.idb.set('eis', {spectra: S.spectra, mode: S.mode, area: S.area, sym: S.sym, skipL: S.skipL, seq, fv: FITV}).catch(() => {}); }, 600);
 }
 async function restore() {
   try { const r = NQP.idb && await NQP.idb.get('eis');
-    if (r && Array.isArray(r.spectra)) { Object.assign(S, {spectra: r.spectra, mode: r.fv !== FITV ? 3 : r.mode === 2 ? 2 : 3, area: r.area || '', sym: !!r.sym}); seq = r.seq || r.spectra.length;      // sets saved with an older fitting method start again with the default model
+    if (r && Array.isArray(r.spectra)) { Object.assign(S, {spectra: r.spectra, mode: r.fv !== FITV ? 3 : r.mode === 2 ? 2 : 3, area: r.area || '', sym: !!r.sym, skipL: !!r.skipL}); seq = r.seq || r.spectra.length;      // sets saved with an older fitting method start again with the default model
       for (const q of S.spectra) if (q.fit && q.fit.v !== FITV) q.fit = null;        // fitted with an older method: fit again
-      if ($('#e_area')) { $('#e_area').value = S.area; $('#e_sym').checked = S.sym; } } } catch {}
+      if ($('#e_area')) { $('#e_area').value = S.area; $('#e_sym').checked = S.sym; $('#e_skipl').checked = S.skipL; } } } catch {}
   ready = true;
 }
 window.addEventListener('DOMContentLoaded', async () => { build(); await restore(); render(); fitQueue(S.spectra.filter(s => !s.fit)); window.addEventListener('cellpeek:tab', () => render()); });
