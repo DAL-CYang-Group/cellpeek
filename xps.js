@@ -237,16 +237,27 @@ function inRange(sp) {
 }
 // peak limits: p.lim = {c:[a,b], w:[a,b], eta:[a,b]} (from a rule); a == b means fixed.  p.lock fixes c and w.
 const lim = (p, k) => (p.lim && p.lim[k]) || null;
-// Doublet: p.link = {to: id of the main peak, d: splitting (eV, this peak sits at main + d), r: area ratio this / main}.
-// A linked peak has no free parameters: position, width and shape follow the main peak, height = main height × r (same shape, so heights and areas scale alike).
+// Links between peaks.  p.link = {to, r, d, …}: this peak's AREA is r × the area of peak `to`; its shape (L %) is that of `to`.
+//   position  = position of `to` (or of peak `pos` when given) + d      unless cOwn: then the position is a free parameter of this peak
+//   d         = splitting in eV. Fixed, or fitted inside dLim = [low, high]; with dOf it is copied from the link of peak dOf (two doublets with the same splitting)
+//   width     = width of `to` (or of peak `wOf` when given)             unless wOwn: then the width is a free parameter of this peak
+// A doublet made in the table is {to, d, r}: same width, fixed splitting, height = main × r.
+const dcopy = p => ({...p, link: p.link ? {...p.link} : undefined, lim: p.lim});
 function sync(peaks) {
-  for (const p of peaks) if (p.link) { const m = peaks.find(q => q.id === p.link.to);
-    if (!m || m.link) { delete p.link; continue; }
-    p.c = m.c + (+p.link.d || 0); p.w = m.w; p.eta = m.eta; p.h = m.h * (+p.link.r || 0); }
+  const by = id => id && peaks.find(q => q.id === id);
+  for (let pass = 0; pass < 2; pass++) for (const p of peaks) if (p.link) { const L = p.link, m = by(L.to);
+    if (!m) { delete p.link; continue; }
+    const src = by(L.dOf); if (src && src.link) L.d = src.link.d;
+    p.eta = m.eta; if (!L.wOwn) p.w = (by(L.wOf) || m).w;
+    if (!L.cOwn) p.c = (by(L.pos) || m).c + (+L.d || 0);
+    p.h = m.h * (+L.r || 0) * m.w / (p.w || 1); }
 }
-const mainOf = (peaks, p) => (p.link && peaks.find(q => q.id === p.link.to)) || p;
+const posRef = (peaks, p) => (p.link && (peaks.find(q => q.id === p.link.pos) || peaks.find(q => q.id === p.link.to))) || p;
+const getK = (p, k) => k === 'ld' ? p.link.d : p[k], setK = (p, k, v) => { if (k === 'ld') p.link.d = v; else p[k] = v; };
 function freeKeys(p) {
-  if (p.link) return [];
+  if (p.link) { const L = p.link, K = [], fixed = k => { const l = lim(p, k); return p.lock || (l && l[0] === l[1]); };
+    if (L.cOwn && !fixed('c')) K.push('c'); if (L.wOwn && !fixed('w')) K.push('w');
+    if (L.dLim && !L.dOf && L.dLim[1] > L.dLim[0] && !p.lock) K.push('ld'); return K; }
   const K = [];
   for (const k of ['c', 'w']) { const L = lim(p, k); if (!p.lock && !(L && L[0] === L[1])) K.push(k); }
   K.push('h');
@@ -255,6 +266,10 @@ function freeKeys(p) {
 }
 function clampP(p, x0, x1) {
   const L = k => lim(p, k);
+  if (p.link) { const K = p.link;                                              // a linked peak: only what is its own
+    if (K.wOwn) { p.w = Math.min(Math.max(p.w, 0.1), (x1 - x0) * 3); const l = L('w'); if (l) p.w = Math.min(Math.max(p.w, l[0]), l[1]); }
+    if (K.cOwn) { const l = L('c'); if (l) p.c = Math.min(Math.max(p.c, l[0]), l[1]); }
+    if (K.dLim) K.d = Math.min(Math.max(+K.d || 0, K.dLim[0]), K.dLim[1]); return; }
   p.w = Math.min(Math.max(p.w, 0.1), (x1 - x0) * 3); p.h = Math.max(0, p.h); p.eta = Math.min(1, Math.max(0, p.eta));
   p.c = Math.min(Math.max(p.c, x0 - 2), x1 + 2);
   for (const k of ['c', 'w', 'eta']) { const l = L(k); if (l) p[k] = Math.min(Math.max(p[k], l[0]), l[1]); }
@@ -268,8 +283,8 @@ function lm(x, y, peaks, {iters = 100, fix = null, wt = null} = {}) {      // Le
   const sse = f => { let s = 0; for (let i = 0; i < n; i++) { const r = (y[i] - f[i]) * (sw ? sw[i] : 1); s += r * r; } return s; };
   let f = model(), s0 = sse(f), lam = 1e-3;
   for (let it = 0; it < iters; it++) {
-    const J = P.map(([p, k]) => { const v = p[k], d = k === 'eta' ? 1e-3 : Math.max(Math.abs(v) * 1e-5, 1e-5), c = new Float64Array(n);
-      p[k] = v + d; const f2 = model(); p[k] = v; for (let i = 0; i < n; i++) c[i] = (f2[i] - f[i]) / d * (sw ? sw[i] : 1); return c; });   // whole model: linked peaks move with their main peak
+    const J = P.map(([p, k]) => { const v = getK(p, k), d = k === 'eta' ? 1e-3 : Math.max(Math.abs(v) * 1e-5, 1e-5), c = new Float64Array(n);
+      setK(p, k, v + d); const f2 = model(); setK(p, k, v); for (let i = 0; i < n; i++) c[i] = (f2[i] - f[i]) / d * (sw ? sw[i] : 1); return c; });   // whole model: linked peaks move with their main peak
     sync(peaks);
     const A = Array.from({length: m}, () => new Array(m).fill(0)), g = new Array(m).fill(0);
     for (let a = 0; a < m; a++) { for (let i = 0; i < n; i++) g[a] += J[a][i] * (y[i] - f[i]) * (sw ? sw[i] : 1);
@@ -277,8 +292,8 @@ function lm(x, y, peaks, {iters = 100, fix = null, wt = null} = {}) {      // Le
     let ok = false;
     for (let t = 0; t < 10; t++) {
       const B = A.map((r, i) => r.map((v, j) => i === j ? v * (1 + lam) + 1e-12 : v)), dlt = solve(B, g); if (!dlt) { lam *= 10; continue; }
-      const old = peaks.map(p => ({...p}));
-      P.forEach(([p, k], i) => { p[k] += dlt[i]; }); for (const p of peaks) if (p.id !== fix && !p.link) clampP(p, x0, x1);
+      const old = peaks.map(dcopy);
+      P.forEach(([p, k], i) => { setK(p, k, getK(p, k) + dlt[i]); }); for (const p of peaks) if (p.id !== fix) clampP(p, x0, x1);
       const f2 = model(), s2 = sse(f2);
       if (s2 < s0) { const rel = (s0 - s2) / (s0 || 1); f = f2; s0 = s2; lam = Math.max(lam / 3, 1e-9); ok = true; if (rel < 1e-10) it = iters; break; }
       peaks.forEach((p, i) => Object.assign(p, old[i])); lam *= 4;
@@ -304,15 +319,16 @@ function runFit(sp, opt = {}) {
   const {x, y} = inRange(sp), wt = weights(sp, x), P = sp.fit.peaks;
   if (!opt.starts) return lm(x, y, P, {...opt, wt});
   // multi-start: current values + random starts inside the limits; keep the lowest (weighted) residual
-  let best = P.map(p => ({...p})), bs = lm(x, y, P, {...opt, wt}); best = P.map(p => ({...p}));
+  let best = P.map(dcopy), bs = lm(x, y, P, {...opt, wt}); best = P.map(dcopy);
   const ymax = Math.max(...y);
   for (let s = 1; s < opt.starts; s++) {
-    const T = best.map(p => { const q = {...p}, L = k => lim(q, k), rnd = (a, b) => a + Math.random() * (b - a);
+    const T = best.map(p => { const q = dcopy(p), L = k => lim(q, k), rnd = (a, b) => a + Math.random() * (b - a);
       if (freeKeys(q).includes('c')) { const l = L('c'); q.c = l ? rnd(l[0], l[1]) : q.c + rnd(-0.4, 0.4); }
       if (freeKeys(q).includes('w')) { const l = L('w'); q.w = l ? rnd(l[0], l[1]) : q.w * rnd(0.75, 1.3); }
       if (freeKeys(q).includes('eta')) { const l = L('eta') || [0, 1]; q.eta = rnd(l[0], l[1]); }
-      q.h = rnd(0.2, 1) * ymax; return q; });
-    const sc = lm(x, y, T, {...opt, wt}); if (sc < bs) { bs = sc; best = T; }
+      if (freeKeys(q).includes('ld')) q.link.d = rnd(q.link.dLim[0], q.link.dLim[1]);
+      if (!q.link) q.h = rnd(0.2, 1) * ymax; return q; });
+    const sc = lm(x, y, T, {...opt, wt}); if (sc < bs) { bs = sc; best = T.map(dcopy); }
   }
   best.forEach((q, i) => Object.assign(P[i], q));
   return bs;
@@ -322,7 +338,12 @@ function runFit(sp, opt = {}) {
 // ---- NMC modules. A module sets the background, the fitting range and a fixed list of peaks with limits; everything can be changed afterwards in the table.
 // m3p — the 45–80 eV region of an NMC cathode: Mn 3p, Li 1s, Co 3p (+ satellite), Ni 3p3/2 and 3p1/2 (+ their satellites).
 //       Energies are for charge-corrected spectra (C 1s at 284.8 eV), so the charge correction is switched on first when it is not yet.
-//       lim = [low, high] for centre (eV) and width (eV); Ni 3p1/2 is tied to Ni 3p3/2 (splitting, area ratio 1:2, same width).
+//       Constraints as in the group's CasaXPS procedure:
+//         Ni 3p1/2: same width as Ni 3p3/2, area = 1/2 of it, splitting fitted between 1.7 and 2.0 eV
+//         Ni 3p3/2 sat.: area = 0.2 × Ni 3p3/2;  Ni 3p1/2 sat.: area = 0.2 × Ni 3p1/2, at Ni 3p3/2 sat. + the same splitting as the main doublet
+//         Co 3p sat.: area = 0.1 × Co 3p, at Co 3p + 9.6 … 10.0 eV
+//       lim = [low, high] for centre (eV) and width (eV).
+//       Transition-metal fractions: x = (area / RSF) / sum over Ni, Mn, Co, from the Ni 3p3/2, Mn 3p and Co 3p peaks only (RSF of the CasaXPS library, Scofield).
 //       Peak shape: GL(20) of CasaXPS (Gaussian–Lorentzian product, 20 % Lorentzian), as the group uses; new peaks added by hand start with the same shape.
 const RULES = {manual: 'Manual peaks', m3p: 'NMC 3p region: Mn 3p · Li 1s · Co 3p · Ni 3p'};
 const M3P = {range: [45, 80], cuts: [52.0, 57.5, 64.0], top: [75, 80], peaks: [
@@ -330,10 +351,18 @@ const M3P = {range: [45, 80], cuts: [52.0, 57.5, 64.0], top: [75, 80], peaks: [
   {key: 'Li', name: 'Li 1s',         c: 54.0, w: 2.2, lim: {c: [53.0, 55.3], w: [1.2, 3.5]}, color: '#e377c2'},
   {key: 'Co', name: 'Co 3p',         c: 60.8, w: 2.8, lim: {c: [59.6, 62.0], w: [1.5, 4.5]}, color: '#ff7f0e'},
   {key: 'Ni', name: 'Ni 3p3/2',      c: 67.1, w: 2.4, lim: {c: [66.2, 68.0], w: [1.5, 3.5]}, color: '#1f3fd0'},
-  {key: 'Ni2', name: 'Ni 3p1/2',     link: {to: 'Ni', d: 1.9, r: 0.5}, color: '#6a1b9a'},
-  {key: 'CoS', name: 'Co 3p sat.',   c: 70.4, w: 1.5, lim: {c: [69.7, 71.1], w: [0.8, 2.5]}, color: '#ff9896'},
-  {key: 'NiS', name: 'Ni 3p3/2 sat.', c: 71.8, w: 2.2, lim: {c: [71.1, 72.8], w: [1.2, 3.5]}, color: '#7b8cff'},
-  {key: 'NiS2', name: 'Ni 3p1/2 sat.', c: 73.9, w: 2.2, lim: {c: [73.0, 75.0], w: [1.2, 3.5]}, color: '#b07cc6'}]};
+  {key: 'Ni2', name: 'Ni 3p1/2',     link: {to: 'Ni', r: 0.5, d: 1.9, dLim: [1.7, 2.0]}, color: '#6a1b9a'},
+  {key: 'CoS', name: 'Co 3p sat.',   w: 2.5, lim: {w: [1.0, 4.5]}, link: {to: 'Co', r: 0.1, d: 9.7, dLim: [9.6, 10.0], wOwn: true}, color: '#ff9896'},
+  {key: 'NiS', name: 'Ni 3p3/2 sat.', c: 71.9, w: 2.4, lim: {c: [71.0, 72.8], w: [1.2, 4.0]}, link: {to: 'Ni', r: 0.2, cOwn: true, wOwn: true}, color: '#7b8cff'},
+  {key: 'NiS2', name: 'Ni 3p1/2 sat.', link: {to: 'Ni2', r: 0.2, pos: 'NiS', dOf: 'Ni2', wOf: 'NiS', d: 1.9}, color: '#b07cc6'}]};
+const M3P_RSF = {Ni: ['Ni', 'Ni 3p3/2', 1.46], Mn: ['Mn', 'Mn 3p', 1.423], Co: ['Co', 'Co 3p', 1.93]};
+// Transition-metal fractions of a spectrum fitted with the module: [{el, peak, rsf, area, x}] or null
+function tmFractions(sp) {
+  if (sp.fit.rule !== 'm3p') return null; const P = sp.fit.peaks; sync(P);
+  const rows = Object.entries(M3P_RSF).map(([key, [el, peak, rsf]]) => { const p = P.find(q => q.key === key); return p ? {el, peak, rsf, area: area(p), n: area(p) / rsf} : null; });
+  if (rows.some(r => !r)) return null; const tot = rows.reduce((a, r) => a + r.n, 0); if (!(tot > 0)) return null;
+  for (const r of rows) r.x = r.n / tot; return rows;
+}
 function applyRule(sp, rule) {
   sp.fit.rule = RULES[rule] ? rule : 'manual'; sp.fit.weight = null;
   if (sp.fit.rule !== 'm3p') return '';
@@ -349,9 +378,11 @@ function applyRule(sp, rule) {
   sp.fit.range = [a, b]; sp.fit.auto = false; sp.bg = {...sp.bg, method: 'on', kind: 'shirley', navg: 3, a: +a.toFixed(2), b: +b.toFixed(2), cuts, applied: false};
   PCACHE.clear(); const r = proc(sp), ids = {};
   for (const t of M3P.peaks) ids[t.key] = nid();
-  sp.fit.peaks = M3P.peaks.filter(t => t.link || (t.c > a && t.c < b)).map(t => { const i = t.link ? 0 : nearestIdx(r.x, t.c);
-    return t.link ? {id: ids[t.key], key: t.key, name: t.name, c: 0, w: 1, h: 0, eta: 0.2, etaFree: false, lock: false, color: t.color, link: {to: ids[t.link.to], d: t.link.d, r: t.link.r}}
-      : {id: ids[t.key], key: t.key, name: t.name, c: t.c, w: t.w, h: Math.max(r.y[i] * 0.7, 1e-6), eta: 0.2, etaFree: false, lock: false, color: t.color, lim: {c: t.lim.c.slice(), w: t.lim.w.slice()}}; });
+  const L = t => { const k = t.link, o = {to: ids[k.to], r: k.r, d: k.d || 0}; if (k.dLim) o.dLim = k.dLim.slice(); if (k.cOwn) o.cOwn = true; if (k.wOwn) o.wOwn = true;
+    for (const f of ['pos', 'dOf', 'wOf']) if (k[f]) o[f] = ids[k[f]]; return o; };
+  sp.fit.peaks = M3P.peaks.filter(t => t.c == null || (t.c > a && t.c < b)).map(t => { const i = t.c == null ? 0 : nearestIdx(r.x, t.c);
+    const q = {id: ids[t.key], key: t.key, name: t.name, c: t.c || 0, w: t.w || 1, h: t.link ? 0 : Math.max(r.y[i] * 0.7, 1e-6), eta: 0.2, etaFree: false, lock: false, color: t.color};
+    if (t.lim) q.lim = Object.fromEntries(Object.entries(t.lim).map(([k, v]) => [k, v.slice()])); if (t.link) q.link = L(t); return q; });
   sp.fit.ratios = []; ACTIVE = null;
   runFit(sp, {iters: 250, starts: 10});
   return '';
@@ -779,17 +810,19 @@ function fitEvents() {
   cv.addEventListener('pointermove', e => {
     const sp0 = cur(), fr0 = sp0 && sp0.fit.range;
     if (!ftDrag) { cv.style.cursor = hitPeak(e) ? 'grab' : mode() === 'fit' && fr0 && FT && fr0.some(v => Math.abs(FT.px(v) - e.offsetX) < 6) ? 'ew-resize' : mode() === 'range' ? 'col-resize' : mode() === 'fit' ? 'crosshair' : 'default'; return; }
-    if (ftDrag.kind === 'peak') { const p = ftDrag.p, m = mainOf(sp0.fit.peaks, p);          // dragging the partner of a doublet moves its main peak
-      const xv = FT.ix(e.offsetX), hv = Math.max(0, FT.iy(e.offsetY) - baseAt(proc(sp0), xv));              // height above the background
-      if (m !== p) { m.c = xv - (+p.link.d || 0); m.h = hv / (+p.link.r || 1); } else { p.c = xv; p.h = hv; }
-      cv.style.cursor = 'grabbing'; liveFit(m.id); return; }
+    if (ftDrag.kind === 'peak') { const p = ftDrag.p, P0 = sp0.fit.peaks, xv = FT.ix(e.offsetX), hv = Math.max(0, FT.iy(e.offsetY) - baseAt(proc(sp0), xv));   // height above the background
+      let fixId = p.id;
+      if (!p.link) { p.c = xv; p.h = hv; }                                         // a free peak: position and height
+      else if (p.link.cOwn) p.c = xv;                                            // linked area, own position: the position only
+      else { const ref = posRef(P0, p); ref.c = xv - (+p.link.d || 0); fixId = ref.id; }   // tied position: the peak it is tied to moves
+      ftDrag.fix = fixId; cv.style.cursor = 'grabbing'; liveFit(fixId); return; }
     if (ftDrag.kind === 'edge') { const v = FT.ix(e.offsetX), o = fr0[1 - ftDrag.i]; sp0.fit.auto = false; fr0[ftDrag.i] = ftDrag.i ? Math.max(v, o + 0.5) : Math.min(v, o - 0.5);
       $('#xft_a').value = fr0[0].toFixed(2); $('#xft_b').value = fr0[1].toFixed(2); liveFit(null); return; }
     ftDrag.b = FT.ix(e.offsetX); if (Math.abs(e.offsetX - ftDrag.X) > 4) ftDrag.moved = true; drawFit();
   });
   cv.addEventListener('pointerup', () => {
     const d = ftDrag, sp = cur(); ftDrag = null; if (!d || !sp) return;
-    if (d.kind === 'peak') { runFit(sp, {iters: 30, fix: mainOf(sp.fit.peaks, d.p).id}); commit(`${sp.name}: move ${d.p.name} to ${d.p.c.toFixed(2)}`); return; }
+    if (d.kind === 'peak') { runFit(sp, {iters: 30, fix: d.fix || d.p.id}); commit(`${sp.name}: move ${d.p.name} to ${d.p.c.toFixed(2)}`); return; }
     if (d.kind === 'edge') { runFit(sp, {iters: 150}); return commit(`${sp.name}: fitting range ${sp.fit.range.map(v => v.toFixed(1)).join('–')} eV`); }
     if (!d.moved) { drawFit(); return; }
     const a = Math.min(d.a, d.b), b = Math.max(d.a, d.b);
@@ -810,7 +843,7 @@ function fitEvents() {
     const sp = cur(); if (!sp || mode() !== 'fit' || !sp.fit.peaks.length || !FT) return;
     e.preventDefault();
     const x = FT.ix(e.offsetX); let p = sp.fit.peaks.reduce((a, b) => Math.abs(b.c - x) < Math.abs(a.c - x) ? b : a);
-    ACTIVE = p.id; p = mainOf(sp.fit.peaks, p); p.w = Math.max(0.1, p.w * (e.deltaY < 0 ? 1.06 : 1 / 1.06));
+    ACTIVE = p.id; if (p.link && !p.link.wOwn) p = sp.fit.peaks.find(q => q.id === p.link.to) || p; p.w = Math.max(0.1, p.w * (e.deltaY < 0 ? 1.06 : 1 / 1.06));
     liveFit(p.id);
     clearTimeout(wheelT); wheelT = setTimeout(() => commit(`${sp.name}: ${p.name} width ${p.w.toFixed(2)}`), 500);
   }, {passive: false});
@@ -827,7 +860,8 @@ function renderSide() {
   const sp = cur(), box = $('#xft_side'); if (!box) return;
   if (!sp) { box.innerHTML = ''; return; }
   const P = sp.fit.peaks; sync(P); const st = fitStats(sp), tot = P.reduce((s, p) => s + area(p), 0);
-  const dbl = p => p.link ? `<span class="gmuted" title="Partner of ${esc((P.find(q => q.id === p.link.to) || {}).name || '')}: position = main + Δ, area = main × ratio, same width and shape">Δ</span> <input data-f="ld" type="number" step="0.05" value="${+(+p.link.d).toFixed(3)}" style="width:62px"> <span class="gmuted">×</span> <input data-f="lr" type="number" step="0.01" min="0" value="${+(+p.link.r).toFixed(4)}" style="width:58px"> <span class="x" data-unlink title="Make it a free peak again">⛓</span>`
+  const nm = id => esc((P.find(q => q.id === id) || {}).name || '');
+  const dbl = p => p.link ? `<span class="gmuted" title="Area = ${p.link.r} × ${nm(p.link.to)}. ${p.link.cOwn ? 'Position fitted freely.' : `Position = ${nm(p.link.pos || p.link.to)} + Δ${p.link.dOf ? ' (Δ taken from ' + nm(p.link.dOf) + ')' : p.link.dLim ? ` (Δ fitted between ${p.link.dLim[0]} and ${p.link.dLim[1]} eV)` : ''}.`} ${p.link.wOwn ? 'Width fitted freely.' : 'Width = ' + nm(p.link.wOf || p.link.to) + '.'}">${p.link.cOwn ? '' : 'Δ'}</span>${p.link.cOwn ? '' : ` <input data-f="ld" type="number" step="0.05" value="${+(+p.link.d).toFixed(3)}" style="width:62px" ${p.link.dOf ? 'disabled' : ''} class="${p.link.dLim ? 'lk' : ''}">`} <span class="gmuted">×</span> <input data-f="lr" type="number" step="0.01" min="0" value="${+(+p.link.r).toFixed(4)}" style="width:58px"> <span class="x" data-unlink title="Make it a free peak again">⛓</span>`
     : P.some(q => q.link && q.link.to === p.id) ? '<span class="gmuted">main</span>'
     : `<select data-f="mk" title="Add a spin-orbit partner at higher binding energy; its area ratio is fixed by the orbital"><option value="">+ doublet…</option><option value="0.5">p (2:1)</option><option value="0.6667">d (3:2)</option><option value="0.75">f (4:3)</option></select>`;
   const focus = document.activeElement && box.contains(document.activeElement) ? document.activeElement.dataset.f : null;
@@ -838,14 +872,16 @@ function renderSide() {
     <tbody>${P.map((p, k) => `<tr data-id="${p.id}" class="${p.id === ACTIVE ? 'on' : ''}">
       <td><span class="sw" style="background:${p.color}"></span></td>
       <td><input data-f="name" value="${esc(p.name)}" class="nm"></td>
-      <td><input data-f="c" type="number" step="0.05" value="${f1(p.c, 2)}" title="${p.link ? 'follows the main peak' : limTxt(p, 'c')}" class="${lim(p, 'c') ? 'lk' : ''}" ${p.link ? 'disabled' : ''}></td>
-      <td><input data-f="w" type="number" step="0.05" value="${f1(p.w, 2)}" title="${p.link ? 'follows the main peak' : limTxt(p, 'w')}" class="${lim(p, 'w') ? 'lk' : ''}" ${p.link ? 'disabled' : ''}></td>
+      <td><input data-f="c" type="number" step="0.05" value="${f1(p.c, 2)}" title="${p.link && !p.link.cOwn ? 'follows the peak it is tied to' : limTxt(p, 'c')}" class="${lim(p, 'c') ? 'lk' : ''}" ${p.link && !p.link.cOwn ? 'disabled' : ''}></td>
+      <td><input data-f="w" type="number" step="0.05" value="${f1(p.w, 2)}" title="${p.link && !p.link.wOwn ? 'follows the main peak' : limTxt(p, 'w')}" class="${lim(p, 'w') ? 'lk' : ''}" ${p.link && !p.link.wOwn ? 'disabled' : ''}></td>
       <td><input data-f="eta" type="number" step="5" min="0" max="100" value="${f1(p.eta * 100, 0)}" title="${p.etaFree ? 'fitted' : 'fixed'}${lim(p, 'eta') ? ' · ' + limTxt(p, 'eta') : ''}" ${p.link ? 'disabled' : ''}><label class="ef" title="Let the fit change L %"><input type="checkbox" data-f="etaFree" ${p.etaFree ? 'checked' : ''} ${p.link ? 'disabled' : ''}></label></td>
       <td class="ro">${tfmt(+p.h.toPrecision(4))}</td><td class="ro">${tfmt(+area(p).toPrecision(4))}</td><td class="ro">${tot ? (100 * area(p) / tot).toFixed(1) : ''}</td><td class="ro">${snrTxt(snr(p, st))}</td><td class="dbl">${dbl(p)}</td>
       <td><input type="checkbox" data-f="lock" ${p.lock ? 'checked' : ''} ${p.link ? 'disabled' : ''}></td><td><span class="x" title="Delete peak">✕</span></td></tr>`).join('')}</tbody></table>
     ${P.length ? '' : `<div class="gmuted" style="padding:6px 2px">${mode() === 'fit' ? 'Double-click on the plot to add the first peak.' : 'Choose the fitting range first.'}</div>`}
     <div class="ratios"><div class="rh">Area ratios <button type="button" id="xrt_add" ${P.length ? '' : 'disabled'}>+ ratio</button></div>
-      ${sp.fit.ratios.map((r, i) => ratioHtml(sp, r, i)).join('')}</div>`;
+      ${sp.fit.ratios.map((r, i) => ratioHtml(sp, r, i)).join('')}</div>
+    ${(tm => tm ? `<div class="ratios"><div class="rh" title="x = (area / RSF) / sum over Ni, Mn, Co. Only the Ni 3p3/2, Mn 3p and Co 3p peaks are used.">Transition metals at the surface</div>
+      <table class="pk"><thead><tr><th></th><th>peak</th><th>RSF</th><th>area / RSF</th><th>fraction</th></tr></thead><tbody>${tm.map(r => `<tr><td><b>${r.el}</b></td><td>${r.peak}</td><td>${r.rsf}</td><td>${r.n.toPrecision(4)}</td><td><b>${(100 * r.x).toFixed(1)} %</b></td></tr>`).join('')}</tbody></table></div>` : '')(tmFractions(sp))}`;
   box.querySelectorAll('tr[data-id]').forEach(tr => {
     const p = P.find(q => q.id === tr.dataset.id);
     tr.onclick = () => { if (ACTIVE !== p.id) { ACTIVE = p.id; drawFit(); box.querySelectorAll('tr').forEach(t => t.classList.toggle('on', t === tr)); } };
@@ -941,10 +977,11 @@ function exportFiles() {
       files.push([base + '_fit.txt', ['Binding energy (eV)\tintensity\tbackground\tbackground + fit\t' + P.map(p => p.name + ' (above background)').join('\t'),
         ...x.map((xx, i) => { const c = P.map(p => pv(xx, p)), bb = baseAt(r, xx); return [xx, y[i] + bb, bb, c.reduce((a, b) => a + b, 0) + bb, ...c].map(num).join('\t'); })].join('\n') + '\n']);
       const lines = ['peak\tcenter (eV)\tfwhm (eV)\tL_percent\theight\tarea\tarea_percent\tSNR\tdoublet'];
-      for (const p of P) { const row = [p.name, num(p.c), num(p.w), num(p.eta * 100), num(p.h), num(area(p)), num(100 * area(p) / tot), num(snr(p, st)), p.link ? `partner of ${(P.find(q => q.id === p.link.to) || {}).name}: +${p.link.d} eV, area x ${p.link.r}` : ''];
+      for (const p of P) { const row = [p.name, num(p.c), num(p.w), num(p.eta * 100), num(p.h), num(area(p)), num(100 * area(p) / tot), num(snr(p, st)), p.link ? `area = ${p.link.r} x ${(P.find(q => q.id === p.link.to) || {}).name}` + (p.link.cOwn ? '' : `, at ${(P.find(q => q.id === (p.link.pos || p.link.to)) || {}).name} + ${num(p.link.d)} eV`) + (p.link.wOwn ? '' : ', width tied') : ''];
         lines.push(row.join('\t')); sum.push([sp.name, ...row, num(st.r2), num(sp.fit.range[0]), num(sp.fit.range[1])].join('\t')); }
       lines.push('', 'R2\t' + num(st.r2), 'noise\t' + num(st.noise) + '\tstandard deviation of (intensity - background - fit) in the fit range; SNR = peak height / noise', 'range\t' + num(sp.fit.range[0]) + '\t' + num(sp.fit.range[1]));
       for (const q of sp.fit.ratios) lines.push(ratioName(sp, q) + '\t' + num(ratioVal(sp, q)));
+      const tm = tmFractions(sp); if (tm) { lines.push('', 'transition metals\tpeak\tRSF\tarea / RSF\tfraction'); for (const t of tm) lines.push([t.el, t.peak, t.rsf, num(t.n), num(t.x)].join('\t')); }
       lines.push('', 'module\t' + (RULES[sp.fit.rule] || sp.fit.rule), 'weight\t' + (sp.fit.weight ? `x${sp.fit.weight.w} in ${sp.fit.weight.a}-${sp.fit.weight.b}` : 'none'),
         'background\t' + (bgShown(sp) ? `${sp.bg.kind || 'shirley'}, ends = mean of ${+sp.bg.navg || 1} points, ${sp.bg.a != null && sp.bg.b != null ? `window ${sp.bg.a}-${sp.bg.b} eV` : 'whole spectrum'}${(sp.bg.cuts || []).length ? ', split at ' + sp.bg.cuts.join(', ') + ' eV (one background for each part)' : ''}; peaks fitted to intensity minus background` : 'none'),
         'peak shape\tGL(m) of CasaXPS: Gaussian-Lorentzian product, m = L_percent; fwhm = its width parameter F', 'charge correction (eV)\t' + (sp.shiftOn ? sp.shift + ' (strongest C 1s peak of the file moved to ' + C_REF + ' eV)' : 'none'));
