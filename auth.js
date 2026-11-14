@@ -230,7 +230,7 @@ async function logout(silent) {
 }
 
 // ---------- usage log: one row per use ----------
-// One stretch of work = one 'session' row: who (email, device id: set by the backend), from when to when, which tabs
+// One stretch of work = one row: who (name; e-mail and device id are set by the backend), from when to when, which tabs
 // (modules) were used, and the kind of device. Version, IP and whether it is a Dal address are separate columns of the sheet.
 // Nothing else is recorded (no barcodes, file names, plots or error texts).
 // The row is sent when the page is closed, or after LOG_IDLE without any activity; a stretch that could not be sent
@@ -255,7 +255,9 @@ window.addEventListener('cellpeek:tab', () => NQP.log('tab'));
 function segEvent(g) {                           // "09:12–09:47 (35 min) · Neware Cycling, EIS ECM · Windows · Chrome"  (local time of this computer)
   const a = new Date(g.t0), b = new Date(g.t1), hm = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   const mods = (g.mods || []).join(', ') || (g.n ? 'see older rows' : 'opened only');
-  return {t: g.t0, event: 'session', detail: `${hm(a)}–${hm(b)} (${Math.round((b - a) / 60000)} min) · ${mods} · ${deviceKind()}`};
+  // The backend writes this field into the 4th column of the log sheet, which is headed "name": the user's name goes there
+  // (the backend's own e-mail column is hidden in the sheet).
+  return {t: g.t0, event: String((USER && USER.name) || auth().name || '').slice(0, 30), detail: `${hm(a)}–${hm(b)} (${Math.round((b - a) / 60000)} min) · ${mods} · ${deviceKind()}`};
 }
 function send(events, beacon) {
   const body = JSON.stringify({action: 'log', device_id: deviceId(), token: auth().token, version: C.APP_VERSION, ip: IP, events});
