@@ -229,37 +229,33 @@ async function logout(silent) {
   location.reload();
 }
 
-// ---------- usage log: one row per stretch of work ----------
-// Everything done in one stretch (cells loaded, plots, exports, errors …) is collected into a single 'session' entry.
-// It is sent when the page is closed, or after LOG_IDLE without any activity; a stretch that could not be sent
+// ---------- usage log: one row per use ----------
+// One stretch of work = one 'session' row: who (email, device id: set by the backend), from when to when, which tabs
+// (modules) were used, and the kind of device. Version, IP and whether it is a Dal address are separate columns of the sheet.
+// Nothing else is recorded (no barcodes, file names, plots or error texts).
+// The row is sent when the page is closed, or after LOG_IDLE without any activity; a stretch that could not be sent
 // (crash, computer switched off) is kept in this browser and sent the next time the page opens.
-const LOG_IDLE = 10 * 60000, errs = [];
+const LOG_IDLE = 10 * 60000, errs = [];          // errs: last error messages, only attached to a feedback the user sends
 let seg = null, segT = null;
-const segNew = t => ({t0: t, t1: t, n: {}, cells: [], plots: [], exports: [], errors: [], folder: ''});
-const add = (arr, v, max) => { if (v != null && v !== '' && !arr.includes(v) && arr.length < max) arr.push(v); };
+const tabName = () => { const b = $('#tabs [data-tab].on'); return b ? b.textContent.trim() : ''; };
+const deviceKind = () => { const u = navigator.userAgent;
+  const os = /Windows/.test(u) ? 'Windows' : /Mac OS X|Macintosh/.test(u) ? 'Mac' : /Android/.test(u) ? 'Android' : /iPhone|iPad/.test(u) ? 'iOS' : /Linux/.test(u) ? 'Linux' : 'other';
+  const br = /Edg\//.test(u) ? 'Edge' : /OPR\//.test(u) ? 'Opera' : /Chrome\//.test(u) ? 'Chrome' : /Firefox\//.test(u) ? 'Firefox' : /Safari\//.test(u) ? 'Safari' : 'other';
+  return os + ' · ' + br; };
 NQP.log = (event, detail) => {
   if (!C.APPS_SCRIPT_URL || !USER) return;
-  const t = new Date().toISOString(), d = detail && typeof detail === 'object' ? detail : {};
+  const t = new Date().toISOString();
   if (event === 'error') { errs.push({t, event, detail: String(detail)}); errs.length > 20 && errs.shift(); }
-  if (!seg) seg = segNew(t);
-  seg.t1 = t; seg.n[event] = (seg.n[event] || 0) + 1;
-  if (event === 'cell') add(seg.cells, d.bc, 300);
-  else if (event === 'plot') { (d.cells || []).forEach(c => add(seg.cells, c, 300)); (d.modules || []).forEach(m => add(seg.plots, m, 20)); }
-  else if (event === 'export') add(seg.exports, d.name, 30);
-  else if (event === 'folder') seg.folder = d.name || seg.folder;
-  else if (event === 'error') add(seg.errors, String(detail).slice(0, 200), 8);
+  if (!seg) seg = {t0: t, t1: t, mods: []};
+  seg.t1 = t; const m = tabName(); if (m && !(seg.mods = seg.mods || []).includes(m)) seg.mods.push(m);      // the tab that is open counts as used
   LS.set('nqp_seg', seg);
   clearTimeout(segT); segT = setTimeout(flush, LOG_IDLE);
 };
-function segEvent(g) {
-  const min = Math.round((new Date(g.t1) - new Date(g.t0)) / 60000), d = {to: g.t1, minutes: min};
-  if (g.folder) d.folder = g.folder;
-  if (g.cells.length) d.cells = g.cells;
-  if (g.plots.length) d.plots = g.plots;
-  if (g.exports.length) d.exports = g.exports;
-  for (const k of ['raman_load', 'raman_export']) if (g.n[k]) d[k] = g.n[k];
-  if (g.errors.length) d.errors = g.errors;
-  return {t: g.t0, event: 'session', detail: JSON.stringify(d)};
+window.addEventListener('cellpeek:tab', () => NQP.log('tab'));
+function segEvent(g) {                           // "09:12–09:47 (35 min) · Neware Cycling, EIS ECM · Windows · Chrome"  (local time of this computer)
+  const a = new Date(g.t0), b = new Date(g.t1), hm = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const mods = (g.mods || []).join(', ') || (g.n ? 'see older rows' : 'opened only');
+  return {t: g.t0, event: 'session', detail: `${hm(a)}–${hm(b)} (${Math.round((b - a) / 60000)} min) · ${mods} · ${deviceKind()}`};
 }
 function send(events, beacon) {
   const body = JSON.stringify({action: 'log', device_id: deviceId(), token: auth().token, version: C.APP_VERSION, ip: IP, events});
@@ -272,7 +268,7 @@ function flush(beacon) {
   send([segEvent(g)], beacon);
 }
 NQP.logLeftover = () => {                       // a stretch left over from last time (never sent): send it before a new one starts
-  const g = LS.get('nqp_seg'); if (!g || !g.t0 || !g.n || seg) return;
+  const g = LS.get('nqp_seg'); if (!g || !g.t0 || seg) return;
   if (Date.now() - new Date(g.t1) < LOG_IDLE) { seg = g; return; }   // still the same stretch (e.g. after a crash and reopen): carry on with it
   LS.set('nqp_seg', null); if (USER) send([segEvent(g)]);
 };
