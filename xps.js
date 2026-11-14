@@ -312,6 +312,7 @@ function runFit(sp, opt = {}) {
 // m3p — the 45–80 eV region of an NMC cathode: Mn 3p, Li 1s, Co 3p (+ satellite), Ni 3p3/2 and 3p1/2 (+ their satellites).
 //       Energies are for charge-corrected spectra (C 1s at 284.8 eV), so the charge correction is switched on first when it is not yet.
 //       lim = [low, high] for centre (eV) and width (eV); Ni 3p1/2 is tied to Ni 3p3/2 (splitting, area ratio 1:2, same width).
+//       Peak shape: 80 % Gaussian + 20 % Lorentzian (sum form), as the group uses; new peaks added by hand start with the same shape.
 const RULES = {manual: 'Manual peaks', m3p: 'NMC 3p region: Mn 3p · Li 1s · Co 3p · Ni 3p'};
 const M3P = {range: [45, 80], cuts: [52.0, 57.5, 64.0], top: [75, 80], peaks: [
   {key: 'Mn', name: 'Mn 3p',         c: 49.5, w: 2.6, lim: {c: [48.5, 50.6], w: [1.5, 4.0]}, color: '#d62728'},
@@ -338,8 +339,8 @@ function applyRule(sp, rule) {
   PCACHE.clear(); const r = proc(sp), ids = {};
   for (const t of M3P.peaks) ids[t.key] = nid();
   sp.fit.peaks = M3P.peaks.filter(t => t.link || (t.c > a && t.c < b)).map(t => { const i = t.link ? 0 : nearestIdx(r.x, t.c);
-    return t.link ? {id: ids[t.key], key: t.key, name: t.name, c: 0, w: 1, h: 0, eta: 0.3, etaFree: false, lock: false, color: t.color, link: {to: ids[t.link.to], d: t.link.d, r: t.link.r}}
-      : {id: ids[t.key], key: t.key, name: t.name, c: t.c, w: t.w, h: Math.max(r.y[i] * 0.7, 1e-6), eta: 0.3, etaFree: false, lock: false, color: t.color, lim: {c: t.lim.c.slice(), w: t.lim.w.slice()}}; });
+    return t.link ? {id: ids[t.key], key: t.key, name: t.name, c: 0, w: 1, h: 0, eta: 0.2, etaFree: false, lock: false, color: t.color, link: {to: ids[t.link.to], d: t.link.d, r: t.link.r}}
+      : {id: ids[t.key], key: t.key, name: t.name, c: t.c, w: t.w, h: Math.max(r.y[i] * 0.7, 1e-6), eta: 0.2, etaFree: false, lock: false, color: t.color, lim: {c: t.lim.c.slice(), w: t.lim.w.slice()}}; });
   sp.fit.ratios = []; ACTIVE = null;
   runFit(sp, {iters: 250, starts: 10});
   return '';
@@ -789,7 +790,7 @@ function fitEvents() {
     const x = FT.ix(e.offsetX), r = proc(sp), i = nearestIdx(r.x, x);
     const rest = r.y[i] - sp.fit.peaks.reduce((s, p) => s + pv(x, p), 0);
     const used = new Set(sp.fit.peaks.map(p => p.color)), col = PEAK_COL.find(c => !used.has(c)) || PEAK_COL[sp.fit.peaks.length % PEAK_COL.length];
-    const p = {id: nid(), name: 'P' + (sp.fit.peaks.length + 1), c: x, w: 1.4, h: Math.max(rest, (r.y[i] || 0) * 0.3, 1e-6), eta: 0.3, etaFree: false, lock: false, color: col};
+    const p = {id: nid(), name: 'P' + (sp.fit.peaks.length + 1), c: x, w: 1.4, h: Math.max(rest, (r.y[i] || 0) * 0.3, 1e-6), eta: 0.2, etaFree: false, lock: false, color: col};
     sp.fit.peaks.push(p); ACTIVE = p.id;
     runFit(sp, {iters: 150});
     commit(`${sp.name}: add peak at ${x.toFixed(1)} eV`);
