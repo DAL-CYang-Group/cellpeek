@@ -3,7 +3,7 @@
 // Right: fitting window for the selected spectrum. Differences from Raman:
 //   - x axis = binding energy (eV), drawn from high to low
 //   - background: Shirley (iterative) or linear, between the two ends of the spectrum or of a typed window
-//   - peaks: Gaussian–Lorentzian sum (pseudo-Voigt); a peak can have a spin-orbit partner (doublet) with fixed splitting and area ratio
+//   - peaks: Gaussian–Lorentzian product, GL(m) as in CasaXPS; a peak can have a spin-orbit partner (doublet) with fixed splitting and area ratio
 //   - no rule presets yet
 // Every change is a step in the history (Undo / Redo); the project is auto-saved in the browser and,
 // if a save folder is chosen, to CellPeek_XPS_project.json in that folder.
@@ -216,9 +216,20 @@ function proc(sp) {
   PCACHE.set(key, r); return r;
 }
 
-// ---------------- peaks: pseudo-Voigt (eta = Lorentz fraction; 0 = pure Gaussian) ----------------
-function pv(x, p) { const d = (x - p.c) / p.w, d2 = d * d; return p.h * ((1 - p.eta) * Math.exp(-4 * LN2 * d2) + p.eta / (1 + 4 * d2)); }
-const area = p => p.h * p.w * ((1 - p.eta) * Math.sqrt(Math.PI / (4 * LN2)) + p.eta * Math.PI / 2);
+// ---------------- peaks: Gaussian–Lorentzian product, the GL(m) line shape of CasaXPS ----------------
+//   GL(x) = h · exp(−4 ln2 (1 − m) u²) / (1 + 4 m u²),   u = (x − c) / w,   m = eta = Lorentzian share (0 = pure Gaussian, 1 = pure Lorentzian)
+// w is the width parameter F of CasaXPS (the exact full width at half maximum for m = 0 and m = 1, slightly less in between).
+// The area has no closed form for 0 < m < 1; it is integrated numerically once for each m.
+function pv(x, p) { const d = (x - p.c) / p.w, d2 = d * d, m = p.eta; return p.h * Math.exp(-4 * LN2 * (1 - m) * d2) / (1 + 4 * m * d2); }
+const GLAREA = new Map();
+function glArea(m) {                            // ∫ GL du for h = w = 1
+  if (m <= 1e-6) return Math.sqrt(Math.PI / (4 * LN2)); if (m >= 1 - 1e-6) return Math.PI / 2;
+  const k = Math.round(m * 1e4); if (GLAREA.has(k)) return GLAREA.get(k);
+  const U = Math.min(400, Math.sqrt(30 / (4 * LN2 * (1 - m)))), N = 4000, h = U / N; let t = 0;      // even function: twice the integral from 0 to U (Simpson)
+  for (let i = 0; i <= N; i++) { const u = i * h, f = Math.exp(-4 * LN2 * (1 - m) * u * u) / (1 + 4 * m * u * u); t += f * (i === 0 || i === N ? 1 : i % 2 ? 4 : 2); }
+  const A = 2 * t * h / 3; GLAREA.set(k, A); return A;
+}
+const area = p => p.h * p.w * glArea(p.eta);
 function inRange(sp) {
   const r = proc(sp), [a, b] = sp.fit.range, x = [], y = [];
   for (let i = 0; i < r.x.length; i++) if (r.x[i] >= a && r.x[i] <= b) { x.push(r.x[i]); y.push(r.y[i]); }
@@ -312,7 +323,7 @@ function runFit(sp, opt = {}) {
 // m3p — the 45–80 eV region of an NMC cathode: Mn 3p, Li 1s, Co 3p (+ satellite), Ni 3p3/2 and 3p1/2 (+ their satellites).
 //       Energies are for charge-corrected spectra (C 1s at 284.8 eV), so the charge correction is switched on first when it is not yet.
 //       lim = [low, high] for centre (eV) and width (eV); Ni 3p1/2 is tied to Ni 3p3/2 (splitting, area ratio 1:2, same width).
-//       Peak shape: 80 % Gaussian + 20 % Lorentzian (sum form), as the group uses; new peaks added by hand start with the same shape.
+//       Peak shape: GL(20) of CasaXPS (Gaussian–Lorentzian product, 20 % Lorentzian), as the group uses; new peaks added by hand start with the same shape.
 const RULES = {manual: 'Manual peaks', m3p: 'NMC 3p region: Mn 3p · Li 1s · Co 3p · Ni 3p'};
 const M3P = {range: [45, 80], cuts: [52.0, 57.5, 64.0], top: [75, 80], peaks: [
   {key: 'Mn', name: 'Mn 3p',         c: 49.5, w: 2.6, lim: {c: [48.5, 50.6], w: [1.5, 4.0]}, color: '#d62728'},
@@ -822,8 +833,8 @@ function renderSide() {
   const focus = document.activeElement && box.contains(document.activeElement) ? document.activeElement.dataset.f : null;
   box.innerHTML = `
     <div class="r2">R² = <b>${st ? st.r2.toFixed(4) : '—'}</b>${sp.fit.weight ? ` <span class="gmuted">· residuals weighted ×${sp.fit.weight.w} in ${sp.fit.weight.a}–${sp.fit.weight.b} eV</span>` : ''}</div>
-    <table class="pk"><thead><tr><th></th><th>Peak</th><th title="Peak position">Center</th><th title="Full width at half maximum">FWHM</th>
-      <th title="Lorentzian fraction: 0 = pure Gaussian, 100 = pure Lorentzian; tick = let the fit change it">L % · fit</th><th>Height</th><th>Area</th><th>%</th><th title="Signal-to-noise ratio: peak height ÷ noise. Noise = standard deviation of (intensity − background − fit) in the fit range">S/N</th><th title="Spin-orbit doublet: Δ = splitting in eV, × = area ratio partner ÷ main">Doublet</th><th title="Lock position and width">🔒</th><th></th></tr></thead>
+    <table class="pk"><thead><tr><th></th><th>Peak</th><th title="Peak position">Center</th><th title="Width parameter of GL(m), as the FWHM column of CasaXPS">FWHM</th>
+      <th title="m of the GL(m) line shape of CasaXPS (Gaussian × Lorentzian): 0 = pure Gaussian, 100 = pure Lorentzian; tick = let the fit change it">L % · fit</th><th>Height</th><th>Area</th><th>%</th><th title="Signal-to-noise ratio: peak height ÷ noise. Noise = standard deviation of (intensity − background − fit) in the fit range">S/N</th><th title="Spin-orbit doublet: Δ = splitting in eV, × = area ratio partner ÷ main">Doublet</th><th title="Lock position and width">🔒</th><th></th></tr></thead>
     <tbody>${P.map((p, k) => `<tr data-id="${p.id}" class="${p.id === ACTIVE ? 'on' : ''}">
       <td><span class="sw" style="background:${p.color}"></span></td>
       <td><input data-f="name" value="${esc(p.name)}" class="nm"></td>
@@ -936,7 +947,7 @@ function exportFiles() {
       for (const q of sp.fit.ratios) lines.push(ratioName(sp, q) + '\t' + num(ratioVal(sp, q)));
       lines.push('', 'module\t' + (RULES[sp.fit.rule] || sp.fit.rule), 'weight\t' + (sp.fit.weight ? `x${sp.fit.weight.w} in ${sp.fit.weight.a}-${sp.fit.weight.b}` : 'none'),
         'background\t' + (bgShown(sp) ? `${sp.bg.kind || 'shirley'}, ends = mean of ${+sp.bg.navg || 1} points, ${sp.bg.a != null && sp.bg.b != null ? `window ${sp.bg.a}-${sp.bg.b} eV` : 'whole spectrum'}${(sp.bg.cuts || []).length ? ', split at ' + sp.bg.cuts.join(', ') + ' eV (one background for each part)' : ''}; peaks fitted to intensity minus background` : 'none'),
-        'peak shape\tGaussian-Lorentzian sum (pseudo-Voigt), L_percent = Lorentzian share', 'charge correction (eV)\t' + (sp.shiftOn ? sp.shift + ' (strongest C 1s peak of the file moved to ' + C_REF + ' eV)' : 'none'));
+        'peak shape\tGL(m) of CasaXPS: Gaussian-Lorentzian product, m = L_percent; fwhm = its width parameter F', 'charge correction (eV)\t' + (sp.shiftOn ? sp.shift + ' (strongest C 1s peak of the file moved to ' + C_REF + ' eV)' : 'none'));
       files.push([base + '_peaks.txt', lines.join('\n') + '\n']);
     }
   }
