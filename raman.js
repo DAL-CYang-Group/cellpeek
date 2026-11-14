@@ -313,10 +313,19 @@ function drawPlot(cv, H, o) {
       g.fillText(s.label, cx, by); labels.push({id: s.id, cx, by, x0: cx - tw / 2 - 3, x1: cx + tw / 2 + 3, y0: by - 12, y1: by + 4});
       g.font = '12px -apple-system, "Segoe UI", sans-serif'; }
   }
-  for (const m of o.marks || []) {
-    const X = px(m.x), Y = py(m.y); g.fillStyle = m.color; g.font = '600 11px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'center';
-    g.fillText(m.text, X, Y - 10); g.beginPath(); g.arc(X, Y, m.on ? 6 : 4.5, 0, 7); g.fillStyle = m.on ? '#fff' : m.color; g.fill();
-    g.lineWidth = 2; g.strokeStyle = m.color; g.stroke(); g.lineWidth = 1;
+  if ((o.marks || []).length) {                   // peak labels: no dot. A dashed line goes from the top of each peak up to one level; the label is written upwards from there
+    const F = w => (w ? '600 ' : '') + '11.5px -apple-system, "Segoe UI", sans-serif', yL = T + (o.tagH || 60), GAP = 15;
+    const M = o.marks.map(m => ({...m, X: px(m.x), Y: py(m.y)})).filter(m => m.X > L + 2 && m.X < L + pw - 2).sort((a, b) => a.X - b.X);
+    for (const m of M) m.lx = m.X;
+    for (let it = 0; it < 60; it++) { for (let i = 1; i < M.length; i++) { const d = GAP - (M[i].lx - M[i - 1].lx); if (d > 0) { M[i - 1].lx -= d / 2; M[i].lx += d / 2; } }
+      if (M.length) { const lo = L + 9 - M[0].lx; if (lo > 0) for (const m of M) m.lx += lo; const hi = M[M.length - 1].lx - (L + pw - 9); if (hi > 0) for (const m of M) m.lx -= hi; } }
+    for (const m of M) {
+      g.strokeStyle = m.color; g.lineWidth = m.on ? 1.5 : 1; g.setLineDash([3, 3]); g.beginPath();
+      if (m.Y - 2 > yL + 18) { g.moveTo(m.X, m.Y - 2); g.lineTo(m.X, yL + 18); g.lineTo(m.lx, yL + 4); } else if (m.Y - 2 > yL + 5) { g.moveTo(m.X, m.Y - 2); g.lineTo(m.lx, yL + 4); }
+      g.stroke(); g.setLineDash([]); g.lineWidth = 1;
+      g.save(); g.translate(m.lx, yL); g.rotate(-Math.PI / 2); g.fillStyle = m.color; g.font = F(m.on); g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(m.text, 0, 0); g.restore();
+    }
+    g.textBaseline = 'alphabetic';
   }
   for (const z of o.drag ? [o.drag] : []) { g.fillStyle = z.color; g.fillRect(px(Math.min(z.a, z.b)), T, Math.abs(px(z.b) - px(z.a)), ph); }
   g.restore();
@@ -627,12 +636,16 @@ function renderFitBar() {
     <label>rule <select id="ft_rule">${Object.entries(RULES).map(([k, v]) => `<option value="${k}" ${sp.fit.rule === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>`;
   h.classList.toggle('hint', mode() === 'range');
   h.innerHTML = mode() === 'range' ? '<b>Drag across the plot</b> to choose the fitting range (or type it above). It need not match the view.'
-    : 'Double-click: add a peak · drag a dot: move it · scroll: width · drag a dashed line: change the range · the fit updates as you go';
+    : 'Double-click: add a peak · drag the top of a peak: move it · scroll: width · drag a dashed line: change the range · the fit updates as you go';
   const rs = $('#ft_rule'); if (rs) rs.onchange = () => { applyRule(sp, rs.value); commit(`${sp.name}: rule ${rs.value}`); };
   for (const k of ['ft_a', 'ft_b']) { const el = $('#' + k); if (el) el.onchange = () => {
     const a = +$('#ft_a').value, c = +$('#ft_b').value; if (!isFinite(a) || !isFinite(c) || a === c) return;
     sp.fit.range = [Math.min(a, c), Math.max(a, c)]; runFit(sp, {iters: 150}); commit(`${sp.name}: range ${sp.fit.range.map(v => v.toFixed(0)).join('–')}`); }; }
 }
+// room for the peak labels at the top of the fitting plot (px): the longest label, written upwards
+let TAGG = null;
+function tagRoom(texts) { TAGG = TAGG || document.createElement('canvas').getContext('2d'); TAGG.font = '600 11.5px -apple-system, "Segoe UI", sans-serif';
+  return Math.min(150, Math.max(24, ...texts.map(t => TAGG.measureText(t).width)) + 8); }
 let FT = null, ftDrag = null, liveT = null, wheelT = null;
 function drawFit() {
   const cv = $('#ft_cv'), sp = cur(); if (!cv || !FITOPEN || $('section[data-pane=raman]').hidden) return;
@@ -644,14 +657,15 @@ function drawFit() {
     const xs = []; const st = (fr[1] - fr[0]) / 600; for (let x = fr[0]; x <= fr[1] + st / 2; x += st) xs.push(x);
     P.forEach((p, k) => { const col = p.color || PEAK_COL[k % PEAK_COL.length], y = xs.map(x => pv(x, p));
       series.push({x: xs, y, color: col, width: 1, fill: hexA(col, p.id === ACTIVE && !EXPORTING ? .42 : .28)});
-      marks.push({x: p.c, y: p.h, color: col, text: p.c.toFixed(0), on: p.id === ACTIVE && !EXPORTING}); });
+      marks.push({x: p.c, y: p.h, color: col, text: /^P\d+$/.test(p.name || 'P1') ? p.c.toFixed(0) : p.name, on: p.id === ACTIVE && !EXPORTING}); });   // label: the name typed in the table; a peak not named yet shows its position
   }
   series.push({x: vi, y: vy, color: '#8a9099', points: 2.6});
   if (fr && P.length) { const xs = series[0].x; series.push({x: xs, y: xs.map(x => P.reduce((s, p) => s + pv(x, p), 0)), color: '#111', width: 1.6}); }
-  let yr = extent([vy, ...series.filter(s => s.fill).map(s => s.y)], 0.05); yr = fill(LIMS.fit, [Math.min(yr[0], 0 - (yr[1] - yr[0]) * .03), yr[1] + (yr[1] - yr[0]) * .06]);
+  const tagH = marks.length ? tagRoom(marks.map(m => m.text)) : 0, room = h => h / Math.max(0.35, 1 - (tagH + 22) / 308);      // the labels stand above the highest peak
+  let yr = extent([vy, ...series.filter(s => s.fill).map(s => s.y)], 0.05); { const lo = Math.min(yr[0], 0 - (yr[1] - yr[0]) * .03); yr = fill(LIMS.fit, [lo, lo + room(yr[1] - lo)]); }
   const bands = [];
   if (fr && !EXPORTING) bands.push({a: fr[0], b: fr[1], color: mode() === 'range' ? 'rgba(255,190,40,.18)' : 'rgba(255,200,60,.09)', edge: '#e0a800'});
-  FT = drawPlot(cv, 380, {xr, yr, series, marks, bands, xlabel: 'Raman shift (cm⁻¹)', ylabel: 'Intensity (a.u.)',
+  FT = drawPlot(cv, 380, {xr, yr, series, marks, tagH, bands, xlabel: 'Raman shift (cm⁻¹)', ylabel: 'Intensity (a.u.)',
     drag: ftDrag && ftDrag.kind !== 'peak' && ftDrag.moved ? {a: ftDrag.a, b: ftDrag.b, color: ftDrag.kind === 'range' ? 'rgba(255,190,40,.3)' : 'rgba(31,95,191,.12)'} : null});
   axisUI(cv, FT, 'fit', xr, yr);
   cv.style.cursor = mode() === 'range' ? 'col-resize' : mode() === 'fit' ? 'crosshair' : 'default';

@@ -19,9 +19,9 @@ const idb = () => window.NQP && NQP.idb;
 // ---------------- state ----------------
 // DATA: raw arrays (never changed);  S: everything the user changes (snapshotted for undo)
 let DATA = {};
-let S = {spectra: [], sel: null, wf: {offset: 1, norm: true, view: 'corrected', fits: true}, shiftTarget: 284.8};
+let S = {module: 'm3p', spectra: [], sel: null, wf: {offset: 1, norm: true, view: 'corrected', fits: true}, shiftTarget: 284.8};
 let HIST = [], HPOS = -1;                      // HIST[i] = {s: JSON of S, label, t}
-let FITOPEN = false, PICK = false;             // fitting panel shown? · picking shift points on the waterfall?
+let FITOPEN = true, PICK = false;             // fitting panel shown? · picking shift points on the waterfall?
 const mode = () => !FITOPEN ? 'off' : (cur() && cur().fit.range ? 'fit' : 'range');
 const VIEW = {wf: null, fit: {}};              // x zoom (not part of history)
 let ACTIVE = null;                             // id of the peak last touched
@@ -116,7 +116,7 @@ async function addFiles(files) {
         S.spectra.push(sp); last = id; n++; }
     } catch (e) { bad.push(f.name + ': ' + e.message); }
   }
-  if (last) { S.sel = last; }
+  if (n) { applyCharge(true); const sel0 = S.sel; S.sel = null; for (const q of S.spectra) if (inModule(q) && !q.fit.peaks.length) S.sel = S.sel || q.id; if (!S.sel) S.sel = sel0; ensureModule(); }      // charge correction and the preset fit, straight away; the first new spectrum is shown
   if (n) commit(`Load ${n} spectr${n > 1 ? 'a' : 'um'}`);
   msg(bad.length ? 'Not loaded: ' + bad.join('; ') : n ? `${n} ${n > 1 ? 'spectra' : 'spectrum'} loaded` : '');
   if (n && window.NQP && NQP.log) NQP.log('xps_load', {n});
@@ -363,6 +363,16 @@ function tmFractions(sp) {
   if (rows.some(r => !r)) return null; const tot = rows.reduce((a, r) => a + r.n, 0); if (!(tot > 0)) return null;
   for (const r of rows) r.x = r.n / tot; return rows;
 }
+const MODES = {m3p: 'NMC 3p region · Mn 3p, Li 1s, Co 3p, Ni 3p'};
+// a spectrum the mode works on: a narrow scan that covers the Co 3p – Ni 3p part of the region (survey scans are left out)
+function inModule(sp) { const d = DATA[sp.id]; if (!d || !d.x.length) return false; const a = d.x[0], b = d.x[d.x.length - 1]; return a < 60 && b > 66 && b - a < 100; }
+// every spectrum of the mode's region gets the preset fit once; the selection stays on one of them. Returns true when something changed.
+function ensureModule(force) {
+  let ch = false;
+  for (const sp of S.spectra) if (inModule(sp) && (force || sp.fit.rule !== S.module || !sp.fit.peaks.length)) { applyRule(sp, S.module); ch = true; }
+  const c = cur(); if (!c || !inModule(c)) { const f = S.spectra.find(inModule); if (f && f.id !== S.sel) { S.sel = f.id; ch = true; } }
+  return ch;
+}
 function applyRule(sp, rule) {
   sp.fit.rule = RULES[rule] ? rule : 'manual'; sp.fit.weight = null;
   if (sp.fit.rule !== 'm3p') return '';
@@ -431,10 +441,19 @@ function drawPlot(cv, H, o) {
       g.fillText(s.label, cx, by); labels.push({id: s.id, cx, by, x0: cx - tw / 2 - 3, x1: cx + tw / 2 + 3, y0: by - 12, y1: by + 4});
       g.font = '12px -apple-system, "Segoe UI", sans-serif'; }
   }
-  for (const m of o.marks || []) {
-    const X = px(m.x), Y = py(m.y); g.fillStyle = m.color; g.font = '600 11px -apple-system, "Segoe UI", sans-serif'; g.textAlign = 'center';
-    g.fillText(m.text, X, Y - 10); g.beginPath(); g.arc(X, Y, m.on ? 6 : 4.5, 0, 7); g.fillStyle = m.on ? '#fff' : m.color; g.fill();
-    g.lineWidth = 2; g.strokeStyle = m.color; g.stroke(); g.lineWidth = 1;
+  if ((o.marks || []).length) {                   // peak labels: no dot. A dashed line goes from the top of each peak up to one level; the label is written upwards from there
+    const F = w => (w ? '600 ' : '') + '11.5px -apple-system, "Segoe UI", sans-serif', yL = T + (o.tagH || 60), GAP = 15;
+    const M = o.marks.map(m => ({...m, X: px(m.x), Y: py(m.y)})).filter(m => m.X > L + 2 && m.X < L + pw - 2).sort((a, b) => a.X - b.X);
+    for (const m of M) m.lx = m.X;
+    for (let it = 0; it < 60; it++) { for (let i = 1; i < M.length; i++) { const d = GAP - (M[i].lx - M[i - 1].lx); if (d > 0) { M[i - 1].lx -= d / 2; M[i].lx += d / 2; } }
+      if (M.length) { const lo = L + 9 - M[0].lx; if (lo > 0) for (const m of M) m.lx += lo; const hi = M[M.length - 1].lx - (L + pw - 9); if (hi > 0) for (const m of M) m.lx -= hi; } }
+    for (const m of M) {
+      g.strokeStyle = m.color; g.lineWidth = m.on ? 1.5 : 1; g.setLineDash([3, 3]); g.beginPath();
+      if (m.Y - 2 > yL + 18) { g.moveTo(m.X, m.Y - 2); g.lineTo(m.X, yL + 18); g.lineTo(m.lx, yL + 4); } else if (m.Y - 2 > yL + 5) { g.moveTo(m.X, m.Y - 2); g.lineTo(m.lx, yL + 4); }
+      g.stroke(); g.setLineDash([]); g.lineWidth = 1;
+      g.save(); g.translate(m.lx, yL); g.rotate(-Math.PI / 2); g.fillStyle = m.color; g.font = F(m.on); g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(m.text, 0, 0); g.restore();
+    }
+    g.textBaseline = 'alphabetic';
   }
   for (const z of o.drag ? [o.drag] : []) { g.fillStyle = z.color; g.fillRect(Math.min(px(z.a), px(z.b)), T, Math.abs(px(z.b) - px(z.a)), ph); }
   g.restore();
@@ -489,6 +508,7 @@ function build() {
     <label class="rdrop" id="xr_drop" title="Drop XPS spectra here: PHI MultiPak .spe files (every region becomes a spectrum) or text files with two columns (binding energy, intensity); or click to choose several">
       <input type="file" id="xr_file" multiple accept=".spe,.txt,.csv,.dat,.xy,.asc,.json" hidden>
       <span class="ic">⇣</span><span><b>Drop XPS spectra here</b><br><u>or click to choose files…</u></span></label>
+    <label class="xmode" title="What is fitted. A mode sets the energy region, the background and the list of peaks with their constraints.">Mode <select id="x_mode">${Object.entries(MODES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
     <span class="hbtns">
       <button type="button" id="xr_undo" class="big" title="Undo (Ctrl+Z)">↶ Undo</button>
       <button type="button" id="xr_redo" class="big" title="Redo (Ctrl+Y)">↷ Redo</button>
@@ -502,30 +522,23 @@ function build() {
     <div id="xr_msg"></div>
     <div class="rgrid" id="xr_grid">
       <div class="mod rwf">
-        <div class="rsplit" id="xr_split" title="Drag to make the plots narrower or wider · double-click: half and half"></div>
-        <div class="bar"><span class="t">Spectra</span>
-          <span class="opts">
-          <label><input type="checkbox" id="xwf_norm"> normalize</label> <label>offset <input type="number" id="xwf_off" step="0.1" style="width:56px"></label>
-          <label title="Draw the fitted peaks and their sum on every curve"><input type="checkbox" id="xwf_fits"> fits</label></span>
-          <button type="button" class="primary" id="xft_open">Open fitting ▸</button>
-          <button type="button" class="expbtn" data-xpng="wf">Export PNG</button></div>
-        <div class="hintrow" id="xwf_hint"></div>
-        <div class="plot"><canvas id="xwf_cv"></canvas></div>
-        <div id="xwf_list"></div>
-        <div class="pre" id="xwf_pre"></div>
-      </div>
-      <div class="mod rfit" id="xr_fit" hidden>
+        <div class="rsplit" id="xr_split" title="Drag to make the plot narrower or wider · double-click: half and half"></div>
         <div class="bar"><span class="t" id="xft_title">Fitting</span>
           <span id="xft_btns" class="opts"></span>
-          <button type="button" id="xft_close" title="Close the fitting panel">✕ Close</button>
-          <button type="button" class="expbtn" data-xpng="fit">Export PNG</button></div>
+          <button type="button" class="expbtn" data-xpng="fit" style="margin-left:auto">Export PNG</button></div>
         <div class="hintrow" id="xft_hint"></div>
         <div class="plot"><canvas id="xft_cv"></canvas></div>
-        <div class="side" id="xft_side"></div>
+        <div id="xwf_list"></div>
+        <div class="pre" id="xwf_pre"></div>
+        <div hidden><div class="plot"><canvas id="xwf_cv"></canvas></div><span id="xwf_hint"></span>
+          <input type="checkbox" id="xwf_norm"><input type="number" id="xwf_off"><input type="checkbox" id="xwf_fits"><button type="button" id="xft_open"></button><button type="button" id="xft_close"></button></div>
+      </div>
+      <div class="mod rfit" id="xr_fit">
+        <div class="bar"><span class="t">Fitted peaks</span></div>
+        <div class="side" id="xft_side" style="margin-top:0;border-top:0;padding-top:0"></div>
       </div>
     </div>`;
-  $('#xft_open').onclick = () => { FITOPEN = true; render(); };
-  $('#xft_close').onclick = () => { FITOPEN = false; render(); };
+  $('#x_mode').onchange = e => { S.module = e.target.value; ensureModule(true); commit('Mode: ' + MODES[S.module]); };
   // file input / drop
   $('#xr_file').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
   const dz = $('#xr_drop');
@@ -592,25 +605,24 @@ function render() {
   $('#xr_undo').title = HPOS > 0 ? 'Undo: ' + HIST[HPOS].label + ' (Ctrl+Z)' : 'Nothing to undo';
   $('#xr_redo').title = HPOS < HIST.length - 1 ? 'Redo: ' + HIST[HPOS + 1].label + ' (Ctrl+Y)' : 'Nothing to redo';
   $('#xr_hn').textContent = Math.max(0, HPOS);
-  $('#xr_fit').hidden = !FITOPEN; $('#xft_open').hidden = FITOPEN;
+  if (!MODES[S.module]) S.module = 'm3p'; $('#x_mode').value = S.module;
   $('#xwf_hint').innerHTML = 'Click a curve to select it · double-click to reset the axes';
   $('#xwf_hint').classList.toggle('hint', PICK);
   $('#xwf_norm').checked = S.wf.norm; $('#xwf_off').value = S.wf.offset; $('#xwf_fits').checked = S.wf.fits !== false;
   renderList(); renderPre(); drawWf(); renderFitBar(); drawFit(); renderSide();
 }
 function renderList() {
-  const box = $('#xwf_list');
-  if (!S.spectra.length) { box.innerHTML = '<div class="empty">No spectra yet — drop PHI .spe files, or text files with two columns (binding energy in eV, intensity), on the box above.</div>'; return; }
-  box.innerHTML = S.spectra.map(s => `<div class="srow${s.id === S.sel ? ' on' : ''}${inRegion(s) ? '' : ' other'}" data-id="${s.id}"${inRegion(s) ? '' : ' title="Another energy region: click to show the spectra of that region"'}>
-    <input type="checkbox" ${s.show ? 'checked' : ''} title="Show in waterfall"><input type="color" value="${s.color}">
+  const box = $('#xwf_list'), M = S.spectra.filter(inModule);
+  if (!S.spectra.length) { box.innerHTML = '<div class="empty">No spectra yet — drop PHI .spe files on the box above.</div>'; return; }
+  if (!M.length) { box.innerHTML = `<div class="empty">None of the loaded files has a scan of the ${M3P.range.join('–')} eV region.</div>`; return; }
+  box.innerHTML = M.map(s => { const st = s.fit.peaks.length ? fitStats(s) : null; return `<div class="srow${s.id === S.sel ? ' on' : ''}" data-id="${s.id}">
     <span class="nm" title="file: ${esc(s.file || s.name)}">${esc(s.name)}</span>
-    <span class="meta">${s.fit.peaks.length ? s.fit.peaks.length + ' peaks' : ''}${bgShown(s) ? ' · ' + (s.bg.kind || 'shirley') + ' bg' : ''}</span>
-    <span class="x" title="Remove">✕</span></div>`).join('');
+    <span class="meta">${st ? 'R² ' + st.r2.toFixed(4) : 'not fitted'}</span>
+    <span class="x" title="Remove this file">✕</span></div>`; }).join('');
   box.querySelectorAll('.srow').forEach(r => { const s = S.spectra.find(q => q.id === r.dataset.id);
-    r.onclick = e => { if (e.target.tagName === 'INPUT' || e.target.classList.contains('x')) return; select(s.id); };
-    r.querySelector('[type=checkbox]').onchange = e => { s.show = e.target.checked; commit((s.show ? 'Show ' : 'Hide ') + s.name); };
-    r.querySelector('[type=color]').onchange = e => { s.color = e.target.value; commit('Colour ' + s.name); };
-    r.querySelector('.x').onclick = () => { S.spectra = S.spectra.filter(q => q !== s); if (S.sel === s.id) S.sel = S.spectra[0] ? S.spectra[0].id : null; commit('Remove ' + s.name); };
+    r.onclick = e => { if (e.target.classList.contains('x')) return; select(s.id); };
+    r.querySelector('.x').onclick = () => { const f = s.file; S.spectra = S.spectra.filter(q => f ? q.file !== f : q !== s);      // the other regions of the file go with it
+      if (!cur()) S.sel = (S.spectra.find(inModule) || {}).id || null; commit('Remove ' + (f || s.name)); };
   });
 }
 function select(id) { if (S.sel === id) return; S.sel = id; ACTIVE = null; commit('Select ' + (cur() || {}).name); }
@@ -679,6 +691,7 @@ function wfCurves() {
   return out;
 }
 function drawWf() {
+  return;                                       // one plot only: the fit of the selected spectrum
   const cv = $('#xwf_cv'); if (!cv || $('section[data-pane=xps]').hidden) return;
   const C = wfCurves(), all = C.map(c => c.x);
   const xr = xRange();
@@ -746,19 +759,24 @@ function nearestIdx(xs, x) { let lo = 0, hi = xs.length - 1; while (hi - lo > 1)
 // ---------------- fitting window ----------------
 function renderFitBar() {
   const sp = cur(), b = $('#xft_btns'), h = $('#xft_hint');
-  $('#xft_title').innerHTML = sp ? `Fitting · <span style="color:${sp.color}">${esc(sp.name)}</span>` : 'Fitting';
+  $('#xft_title').innerHTML = sp && inModule(sp) ? `<span style="color:${sp.color}">${esc(sp.name)}</span>` : 'Fitting';
+  if (sp && !inModule(sp)) { b.innerHTML = ''; h.innerHTML = ''; return; }
   if (!sp) { b.innerHTML = ''; h.innerHTML = 'Load spectra first.'; return; }
   const fr = sp.fit.range;
   b.innerHTML = `<label>range <input type="number" id="xft_a" value="${fr ? +fr[0].toFixed(2) : ''}" step="0.1" style="width:72px"> – <input type="number" id="xft_b" value="${fr ? +fr[1].toFixed(2) : ''}" step="0.1" style="width:72px"> eV</label>
-    <label title="A module sets the background, the range and a fixed list of peaks for one region of an NMC cathode">module <select id="xft_rule">${Object.entries(RULES).map(([k, v]) => `<option value="${k}" ${sp.fit.rule === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>`;
+    <button type="button" id="xft_again" title="Start this spectrum again from the preset of the mode: background, range, peaks">Fit again</button>`;
   h.classList.toggle('hint', mode() === 'range');
   h.innerHTML = mode() === 'range' ? '<b>Drag across the plot</b> to choose the fitting range (or type it above). It need not match the view.'
-    : 'Double-click: add a peak · drag a dot: move it · scroll: width · doublets: in the table · the whole scan is fitted; drag a dashed line to narrow the range';
-  const rs = $('#xft_rule'); if (rs) rs.onchange = () => { const note = applyRule(sp, rs.value); commit(`${sp.name}: module ${RULES[sp.fit.rule]}`); if (note) msg(note); };
+    : 'Double-click: add a peak · drag the top of a peak: move it · scroll: width · drag a dashed line: change the range';
+  $('#xft_again').onclick = () => { const note = applyRule(sp, S.module); commit(`${sp.name}: fit again`); if (note) msg(note); };
   for (const k of ['xft_a', 'xft_b']) { const el = $('#' + k); if (el) el.onchange = () => {
     const a = +$('#xft_a').value, c = +$('#xft_b').value; if (!isFinite(a) || !isFinite(c) || a === c) return;
     sp.fit.range = [Math.min(a, c), Math.max(a, c)]; sp.fit.auto = false; runFit(sp, {iters: 150}); commit(`${sp.name}: range ${sp.fit.range.map(v => v.toFixed(1)).join('–')} eV`); }; }
 }
+// room for the peak labels at the top of the fitting plot (px): the longest label, written upwards
+let TAGG = null;
+function tagRoom(texts) { TAGG = TAGG || document.createElement('canvas').getContext('2d'); TAGG.font = '600 11.5px -apple-system, "Segoe UI", sans-serif';
+  return Math.min(150, Math.max(24, ...texts.map(t => TAGG.measureText(t).width)) + 8); }
 let FT = null, ftDrag = null, liveT = null, wheelT = null;
 function drawFit() {
   const cv = $('#xft_cv'), sp = cur(); if (!cv || !FITOPEN || $('section[data-pane=xps]').hidden) return;
@@ -772,15 +790,16 @@ function drawFit() {
     const bx = xs.map(x => baseAt(r, x));                                              // the peaks stand on the background
     P.forEach((p, k) => { const col = p.color || PEAK_COL[k % PEAK_COL.length], y = xs.map((x, i) => pv(x, p) + bx[i]);
       series.push({x: xs, y, color: col, width: 1, fill: hexA(col, p.id === ACTIVE && !EXPORTING ? .42 : .28), base: bx});
-      marks.push({x: p.c, y: p.h + baseAt(r, p.c), color: col, text: p.c.toFixed(1), on: p.id === ACTIVE && !EXPORTING}); });
+      marks.push({x: p.c, y: p.h + baseAt(r, p.c), color: col, text: /^P\d+$/.test(p.name || 'P1') ? p.c.toFixed(1) : p.name, on: p.id === ACTIVE && !EXPORTING}); });
   }
   if (bgShown(sp)) series.push({x: vi, y: vb, color: '#555', width: 1, dash: [5, 4]});
   series.push({x: vi, y: vy, color: '#8a9099', points: 2.6});
   if (fr && P.length) { const xs = series[0].x; series.push({x: xs, y: xs.map(x => P.reduce((s, p) => s + pv(x, p), 0) + baseAt(r, x)), color: '#111', width: 1.6}); }
-  let yr = extent([vy, ...series.filter(s => s.fill).map(s => s.y)], 0.05); yr = fill(LIMS.fit, [yr[0], yr[1] + (yr[1] - yr[0]) * .06]);
+  const tagH = marks.length ? tagRoom(marks.map(m => m.text)) : 0, room = h => h / Math.max(0.35, 1 - (tagH + 22) / 308);      // the labels stand above the highest peak
+  let yr = extent([vy, ...series.filter(s => s.fill).map(s => s.y)], 0.05); yr = fill(LIMS.fit, [yr[0], yr[0] + room(yr[1] - yr[0])]);
   const bands = [];
   if (fr && !EXPORTING) bands.push({a: fr[0], b: fr[1], color: mode() === 'range' ? 'rgba(255,190,40,.18)' : 'rgba(255,200,60,.09)', edge: '#e0a800'});
-  FT = drawPlot(cv, 380, {xr, yr, series, marks, bands, xlabel: 'Binding energy (eV)', ylabel: 'Intensity (a.u.)',
+  FT = drawPlot(cv, 380, {xr, yr, series, marks, tagH, bands, xlabel: 'Binding energy (eV)', ylabel: 'Intensity (a.u.)',
     drag: ftDrag && ftDrag.kind !== 'peak' && ftDrag.moved ? {a: ftDrag.a, b: ftDrag.b, color: ftDrag.kind === 'range' ? 'rgba(255,190,40,.3)' : 'rgba(31,95,191,.12)'} : null});
   axisUI(cv, FT, 'fit', xr, yr);
   cv.style.cursor = mode() === 'range' ? 'col-resize' : mode() === 'fit' ? 'crosshair' : 'default';
@@ -878,7 +897,7 @@ function renderSide() {
       <td class="ro">${tfmt(+p.h.toPrecision(4))}</td><td class="ro">${tfmt(+area(p).toPrecision(4))}</td><td class="ro">${tot ? (100 * area(p) / tot).toFixed(1) : ''}</td><td class="ro">${snrTxt(snr(p, st))}</td><td class="dbl">${dbl(p)}</td>
       <td><input type="checkbox" data-f="lock" ${p.lock ? 'checked' : ''} ${p.link ? 'disabled' : ''}></td><td><span class="x" title="Delete peak">✕</span></td></tr>`).join('')}</tbody></table>
     ${P.length ? '' : `<div class="gmuted" style="padding:6px 2px">${mode() === 'fit' ? 'Double-click on the plot to add the first peak.' : 'Choose the fitting range first.'}</div>`}
-    <div class="ratios"><div class="rh">Area ratios <button type="button" id="xrt_add" ${P.length ? '' : 'disabled'}>+ ratio</button></div>
+    <div class="ratios" ${sp.fit.rule === 'm3p' ? 'hidden' : ''}><div class="rh">Area ratios <button type="button" id="xrt_add" ${P.length ? '' : 'disabled'}>+ ratio</button></div>
       ${sp.fit.ratios.map((r, i) => ratioHtml(sp, r, i)).join('')}</div>
     ${(tm => tm ? `<div class="ratios"><div class="rh" title="x = (area / RSF) / sum over Ni, Mn, Co. Only the Ni 3p3/2, Mn 3p and Co 3p peaks are used.">Transition metals at the surface</div>
       <table class="pk"><thead><tr><th></th><th>peak</th><th>RSF</th><th>area / RSF</th><th>fraction</th></tr></thead><tbody>${tm.map(r => `<tr><td><b>${r.el}</b></td><td>${r.peak}</td><td>${r.rsf}</td><td>${r.n.toPrecision(4)}</td><td><b>${(100 * r.x).toFixed(1)} %</b></td></tr>`).join('')}</tbody></table></div>` : '')(tmFractions(sp))}`;
@@ -955,7 +974,7 @@ function saveLabel() {
 }
 function loadProject(p) {
   if (!p || !p.state || !p.data || p.app !== 'CellPeek XPS') throw new Error('not a CellPeek XPS project');
-  DATA = {...DATA, ...p.data}; S = p.state; PCACHE.clear();
+  DATA = {...DATA, ...p.data}; S = p.state; PCACHE.clear(); ensureModule();
   HIST = []; HPOS = -1; commit('Open project (' + (p.saved || '').slice(0, 16).replace('T', ' ') + ')');
 }
 async function restore() {
@@ -1016,7 +1035,7 @@ function savePng(which) {
 
 // ---------------- start ----------------
 window.addEventListener('DOMContentLoaded', async () => {
-  build(); await restore(); render();
+  build(); await restore(); if (ensureModule()) commit('Mode: ' + MODES[S.module]); render();
   window.addEventListener('cellpeek:tab', () => render());
 });
 NQP.xps = {parseSpe, wf: () => WF, addText: (name, text) => addFiles([new File([text], name)]), state: () => S, fitNow: () => { runFit(cur(), {iters: 300}); commit('fit'); }};
