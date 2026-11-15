@@ -74,6 +74,8 @@
   #side { position:sticky; top:var(--toph, 120px); max-height:calc(100vh - var(--toph, 120px)); overflow-y:auto; overscroll-behavior:contain;
           padding:10px 16px 16px 4px; display:flex; flex-direction:column; gap:6px; }
   #side h4 { margin:4px 0 0; font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  #side h4 { display:flex; align-items:center; gap:8px; }
+  #clrcells { margin-left:auto; font-size:11.5px; font-weight:400; text-transform:none; letter-spacing:0; padding:1px 9px; border-radius:10px; color:var(--accent); border-color:var(--accent); background:#fff; }
   #side #modebar, #side #chips, #side #msgrow { padding:0; }
   #side .chip { flex-wrap:wrap; border-radius:10px; max-width:100%; }
   #side .chip .nm { flex:1 1 120px; min-width:0; }
@@ -244,7 +246,7 @@
 <body>
 <div id="top">
 <header>
-  <h1>CellPeek - DAL <span style="font-weight:400;color:#6b7480;font-size:12px"><a href="#" id="ver" title="Version history">beta 0.3.1</a> · by <a href="https://www.yang-dal.com/" target="_blank" rel="noopener">Chongyin Yang</a></span></h1>
+  <h1>CellPeek - DAL <span style="font-weight:400;color:#6b7480;font-size:12px"><a href="#" id="ver" title="Version history">beta 0.3.2</a> · by <a href="https://www.yang-dal.com/" target="_blank" rel="noopener">Chongyin Yang</a></span></h1>
   <nav id="tabs" role="tablist">
     <button type="button" role="tab" data-tab="neware">Neware Cycling</button>
     <button type="button" role="tab" data-tab="raman">Raman Fitting</button>
@@ -291,7 +293,7 @@
 <aside id="side">
   <h4>Plots</h4>
   <div id="modebar"></div>
-  <h4>Cells</h4>
+  <h4>Cells <button type="button" id="clrcells" hidden></button></h4>
   <div id="chips"></div>
   <div id="msgrow"><span id="status"></span><span id="bcerr"></span></div>
 </aside>
@@ -307,14 +309,14 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.3.1&b=21"></script>
-<script src="versions.js?v=0.3.1&b=21"></script>
-<script src="data.js?v=0.3.1&b=21"></script>
-<script src="auth.js?v=0.3.1&b=21"></script>
-<script src="raman.js?v=0.3.1&b=21"></script>
-<script src="xps.js?v=0.3.1&b=21"></script>
-<script src="eis.js?v=0.3.1&b=21"></script>
-<script src="drt.js?v=0.3.1&b=21"></script>
+<script src="config.js?v=0.3.2&b=22"></script>
+<script src="versions.js?v=0.3.2&b=22"></script>
+<script src="data.js?v=0.3.2&b=22"></script>
+<script src="auth.js?v=0.3.2&b=22"></script>
+<script src="raman.js?v=0.3.2&b=22"></script>
+<script src="xps.js?v=0.3.2&b=22"></script>
+<script src="eis.js?v=0.3.2&b=22"></script>
+<script src="drt.js?v=0.3.2&b=22"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -410,7 +412,8 @@ const M = [
   {id:'cetime',title:'Coulombic efficiency vs time',        x:'time', y:'ce', opts:[]},
   {id:'dvcyc', title:'ΔV vs cycle',              x:'cyc',  y:'dv', opts:['dvmode']},
   {id:'dvtime',title:'ΔV vs time',              x:'time', y:'dv', opts:['dvmode']},
-  {id:'dqdv',  title:'dQ/dV',                   x:'v',    y:'dq', opts:['cycsel','smooth']},
+  {id:'vq',    title:'Charge–discharge curves',  x:'q',    y:'v',  opts:['cycsel','unit'], per:true},
+  {id:'dqdv',  title:'dQ/dV',                   x:'v',    y:'dq', opts:['cycsel','smooth'], per:true},      // per: one plot for each cell
 ];
 const OPT_HTML = {
   unit:   `Unit <select data-k="unit"><option value="mAh" selected>mAh</option><option value="g">mAh/g</option></select>`,
@@ -435,7 +438,7 @@ function buildModules() {
     const d = document.createElement('section');
     d.className = 'mod' + (DEFAULT_ON[m.id] ? '' : ' off'); d.id = 'mod-' + m.id;
     d.innerHTML = `<div class="bar"><span class="t">${m.title}</span>
-      <div class="opts">${m.opts.map(o => OPT_HTML[o]).join('')}</div>${m.id === 'dqdv' ? '' : '<button type="button" class="expbtn" title="Export this plot as PNG">Export PNG</button>'}</div>
+      <div class="opts">${m.opts.map(o => OPT_HTML[o]).join('')}</div>${m.per ? '' : '<button type="button" class="expbtn" title="Export this plot as PNG">Export PNG</button>'}</div>
       <div class="plot"></div><div class="note"></div>`;
     box.appendChild(d);
     d.addEventListener('input', e => { if (e.target.closest('.uplot')) return; syncShow(d); markDirty(); });
@@ -485,13 +488,16 @@ function restoreNeware() {
       d.querySelectorAll('[data-k]').forEach(e => { const v = o[e.dataset.k]; if (v == null) return; if (e.type === 'checkbox') e.checked = !!v; else e.value = v; });
       syncShow(d);
       if (r.lim && r.lim[m.id]) LIM[m.id] = r.lim[m.id]; });
-    for (const q of r.cells || []) {
-      if (!/^\d{4,9}$/.test(q.bc) || cells.some(c => c.bc === q.bc)) continue;
-      const c = {bc: q.bc, color: q.color || nextColor(), file: q.userFile || null, userFile: q.userFile || undefined, candidates: [], data: null, err: null, loading: true, ranged: !!q.ranged};
-      cells.push(c); loadCell(c, q.userFile || undefined);
-    }
+    putCells(r.cells);
     renderChips(); markDirty();
   } catch (e) { status('Could not restore the last session: ' + e.message); }
+}
+function putCells(list) {                      // saved form [{bc, color, userFile, ranged}] -> cells, read from the data folder again
+  for (const q of list || []) {
+    if (!/^\d{4,9}$/.test(q.bc) || cells.some(c => c.bc === q.bc)) continue;
+    const c = {bc: q.bc, color: q.color || nextColor(), file: q.userFile || null, userFile: q.userFile || undefined, candidates: [], data: null, err: null, loading: true, ranged: !!q.ranged};
+    cells.push(c); loadCell(c, q.userFile || undefined);
+  }
 }
 NQP.onOpen = restoreNeware;                    // called by auth.js when the page opens (data source known)
 
@@ -563,7 +569,20 @@ function renderChips() {
     $('.x', d).addEventListener('click', () => { cells.splice(cells.indexOf(c), 1); hideCellInfo(); renderChips(); markDirty(); renderKw(); });
     box.appendChild(d);
   }
+  if (cells.length) cleared = null;
+  const b = $('#clrcells'); b.hidden = !cells.length && !cleared;
+  b.textContent = cells.length ? 'Clear all' : 'Undo clear';
+  b.title = cells.length ? 'Remove every cell from the list' : 'Put the removed cells back';
 }
+// one click empties the list; until a cell is added again the same button puts the removed cells back
+let cleared = null;
+$('#clrcells').onclick = () => {
+  if (cells.length) {
+    const l = cells.map(c => ({bc: c.bc, color: c.color, userFile: c.userFile || null, ranged: !!c.ranged})), n = l.length;
+    cells.length = 0; cleared = l; bad.clear(); showBad(); status(`Removed ${n} cell${n === 1 ? '' : 's'}`);
+  } else if (cleared) { const l = cleared; cleared = null; putCells(l); }
+  hideCellInfo(); renderChips(); markDirty(); renderKw();
+};
 function hideCellInfo() { const p = $('#cellinfo'); if (p) p.remove(); }
 function showCellInfo(c, anchor) {
   hideCellInfo();
@@ -896,38 +915,68 @@ async function ensureVQ(c, ks) {
   }
   return have;
 }
-async function dqdvPlot(m, s, el) {
+// one branch of a V–Q curve: capacity runs up from 0. A cycle can hold several charge (or discharge) steps, e.g. CC then CV,
+// and the capacity in the data rows starts again at 0 in each step, so the steps are added up. f: mAh/g -> the unit shown.
+function vqCurve(Q, V, f) {
+  const n = Math.min(Q.length, V.length), X = [], Y = []; let base = 0, prev = 0, last = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const q = Q[i]; if (q == null || V[i] == null) continue;
+    if (q < prev * 0.5 && prev - q > 1e-6) base += prev;         // a new step
+    prev = q; const x = (base + q) * f;
+    if (x > last) { X.push(x); Y.push(V[i]); last = x; } else if (X.length) Y[Y.length - 1] = V[i];   // same capacity: keep the latest voltage
+  }
+  return X.length < 2 ? null : [X, Y];
+}
+// many cycles: put the curves on one capacity grid (first and last point of each kept), so the plot stays fast
+function thinCurves(arrs, maxPts) {
+  if (arrs.reduce((t, r) => t + r[0].length, 0) <= maxPts) return arrs;
+  const dq = Math.max(...arrs.map(r => r[0][r[0].length - 1])) / 600; if (!(dq > 0)) return arrs;
+  return arrs.map(([X, Y]) => { const n = X.length, x = [X[0]], y = [Y[0]]; let j = 0;
+    for (let i = Math.floor(X[0] / dq) + 1; i * dq < X[n - 1]; i++) { const g = i * dq; while (j < n - 2 && X[j + 1] < g) j++;
+      x.push(g); y.push(Y[j] + (g - X[j]) / (X[j + 1] - X[j]) * (Y[j + 1] - Y[j])); }
+    x.push(X[n - 1]); y.push(Y[n - 1]); return [x, y]; });
+}
+const massOf = c => { for (const e of c.data.cycles) if (e.qd > 0 && e.qd_mAh > 0) return e.qd_mAh / e.qd; return null; };   // g, from mAh and mAh/g of one cycle
+// what the two per-cell modules draw: curves(c, e) -> [[label, [X, Y]], ...] for one cycle e = {chg: [Q, V], dis: [Q, V]}
+const dqdvKind = s => ({name: 'dQdV', xlab: () => 'Voltage (V)', ylab: 'dQ/dV (mAh g⁻¹ V⁻¹)', few: 'Too few points for dQ/dV',
+  note: 'Charge up, discharge down; cycles from dark to light (drag to zoom, double-click to reset)',
+  curves: (c, e) => [['chg', 1], ['dis', -1]].map(([st, sg]) => [st, e[st] && dqdv(e[st][0], e[st][1], s.smooth, sg)])});
+const vqKind = s => { const f = c => s.unit === 'mAh' ? massOf(c) : 1;
+  return {name: 'VQ', xlab: c => f(c) && s.unit === 'mAh' ? 'Capacity (mAh)' : 'Capacity (mAh/g)', ylab: 'Voltage (V)', few: 'No voltage curve for these cycles', thin: 6000,
+    note: 'Charge and discharge both start at 0; cycles from dark to light (drag to zoom, double-click to reset)',
+    curves: (c, e) => ['chg', 'dis'].map(st => [st, e[st] && vqCurve(e[st][0], e[st][1], f(c) || 1)])}; };
+async function cyclePlots(m, s, el, K) {     // one plot for each cell, one colour for each cycle
   const used = cells.filter(c => c.data); el.innerHTML = '<div class="dq-grid"></div>'; const grid = $('.dq-grid', el), plots = [];
   for (const c of used) {
     const ks = cycleList(s, c), box = document.createElement('div'); box.className = 'dq-cell';
     box.innerHTML = `<div class="hrow"><div class="head" style="color:${c.color}" title="${c.file}">${c.bc} <span>${c.file}</span></div><button type="button" class="expbtn" title="Export this plot as PNG">Export PNG</button></div><div class="pp"></div><div class="cyc-legend"></div>`;
     grid.appendChild(box);
     if (!ks.length) { $('.pp', box).innerHTML = '<div class="note">No data for these cycles</div>'; continue; }
-    const vq = await ensureVQ(c, ks), arrs = [], ser = [], items = [];
+    const vq = await ensureVQ(c, ks), ser = [], items = []; let arrs = [];
     ks.forEach((k, i) => {
       const col = vcolor(ks.length > 1 ? i / (ks.length - 1) : 0), e = vq[k]; if (!e) return;
-      const it = {key: 'c' + k, label: 'Cycle ' + k, color: col, data: []}; items.push(it);
-      for (const [st, sg] of [['chg', 1], ['dis', -1]]) {
-        if (!e[st]) continue; const r = dqdv(e[st][0], e[st][1], s.smooth, sg); if (!r) continue;
-        arrs.push(r); it.data.push(r); ser.push({label: `cyc ${k} ${st}`, stroke: col, width: 1.3, spanGaps: true, points: {show: false}});
-      }
+      const it = {key: 'c' + k, label: 'Cycle ' + k, color: col, n: 0}; items.push(it);
+      for (const [st, r] of K.curves(c, e)) { if (!r) continue;
+        arrs.push(r); it.n++; ser.push({label: `cyc ${k} ${st}`, stroke: col, width: 1.3, spanGaps: true, points: {show: false}}); }
     });
+    if (K.thin) arrs = thinCurves(arrs, K.thin);
+    { let j = 0; for (const it of items) { it.data = arrs.slice(j, j + it.n); j += it.n; } }
     $('.cyc-legend', box).innerHTML = ks.map((k, i) => `<span style="color:${vcolor(ks.length > 1 ? i/(ks.length-1) : 0)}">■ ${k}</span>`).join('');
     { const have = new Set(c.data.cycles.map(e => e.k)), miss = wantedCycles(s).ks.filter(k => !have.has(k));
       if (miss.length) $('.cyc-legend', box).insertAdjacentHTML('beforeend', `<span style="color:#b00">no data: ${miss.length > 12 ? miss.slice(0, 12).join(', ') + ' …' : miss.join(', ')}</span>`); }
-    if (!arrs.length) { $('.pp', box).innerHTML = '<div class="note">Too few points for dQ/dV</div>'; continue; }
-    const pp = $('.pp', box);
+    if (!arrs.length) { $('.pp', box).innerHTML = `<div class="note">${K.few}</div>`; continue; }
+    const pp = $('.pp', box), xlab = K.xlab(c);
     const u = new uPlot({width: width(pp), height: 300, legend: {show: false}, scales: scalesFor(s),
       cursor: {x: false, y: false, points: {show: false}, drag: {x: true, y: true, uni: 40}},
       axes: [AX('x', 34), AX('y', 72)],
       series: [{}].concat(ser)}, uPlot.join(arrs), pp);
-    axisOverlay(u, m, 'Voltage (V)', 'dQ/dV (mAh g⁻¹ V⁻¹)');
-    u.exp = {kind: 'line', name: 'dQdV_' + c.bc, xlab: 'Voltage (V)', ylab: 'dQ/dV (mAh g⁻¹ V⁻¹)', items: items.filter(i => i.data.length)};
+    axisOverlay(u, m, xlab, K.ylab);
+    u.exp = {kind: 'line', name: K.name + '_' + c.bc, xlab, ylab: K.ylab, items: items.filter(i => i.data.length)};
     $('.expbtn', box).onclick = () => openExport(u);
     plots.push(u);
   }
   const w = wantedCycles(s);
-  return {plots, note: (w.bad.length ? `Not understood: ${w.bad.join(', ')} · ` : '') + 'Charge up, discharge down; cycles from dark to light (drag to zoom, double-click to reset)'};
+  return {plots, note: (w.bad.length ? `Not understood: ${w.bad.join(', ')} · ` : '') + K.note};
 }
 
 // ---------------- drawing: only changed modules are redrawn ----------------
@@ -937,7 +986,7 @@ async function drawModule(m) {          // returns true if it redrew
   const d = $('#mod-' + m.id), el = $('.plot', d), s = Object.assign(settings(m), LIM[m.id] || {});
   if (r) r.plots.forEach(p => p.destroy());
   if (sig === 'off') { el.innerHTML = ''; $('.note', d).textContent = ''; rendered[m.id] = {sig, plots: []}; return false; }
-  const out = m.id === 'dqdv' ? await dqdvPlot(m, s, el) : scatterPlot(m, s, el);
+  const out = m.per ? await cyclePlots(m, s, el, m.id === 'vq' ? vqKind(s) : dqdvKind(s)) : scatterPlot(m, s, el);
   $('.note', d).textContent = out.note || ''; rendered[m.id] = {sig, plots: out.plots}; return true;
 }
 async function renderOne(m) { try { if (await drawModule(m)) status(`Redrew: ${m.title}`); } catch (e) { status('Error: ' + e.message); } showDirty(); saveNeware(); }
