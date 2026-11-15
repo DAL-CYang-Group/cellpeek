@@ -293,7 +293,8 @@ window.api = async function (path) {
   const d = await local.data(pick);
   if (u.pathname === '/api/cell') {
     NQP.log && NQP.log('cell', {bc, file: pick.name, cycles: d.cycles.length, ms: Math.round(performance.now() - t0)});
-    return {barcode: bc, file: pick.name, dir: pick.dir, size: pick.size, mtime: pick.mtime, candidates: (files || [pick]).map(f => f.name), fmt: d.fmt, offset: d.offset, start: d.start, parse_s: d.parse_s, cycles: d.cycles};
+    return {barcode: bc, file: pick.name, dir: pick.dir, size: pick.size, mtime: pick.mtime, candidates: (files || [pick]).map(f => f.name), fmt: d.fmt, offset: d.offset, start: d.start, parse_s: d.parse_s, cycles: d.cycles,
+      vqk: Object.keys(d.vq).map(Number).filter(k => d.vq[k].chg || (d.vq[k + d.offset] || {}).dis_raw).sort((x, y) => x - y)};   // cycles with a V-Q curve, the one still running included
   }
   if (u.pathname === '/api/vq') {
     const ks = (q.cycles || '').split(',').filter(x => /^\d+$/.test(x)).map(Number).slice(0, 200), out = {}, off = d.offset;

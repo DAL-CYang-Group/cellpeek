@@ -309,14 +309,14 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.3.2&b=22"></script>
-<script src="versions.js?v=0.3.2&b=22"></script>
-<script src="data.js?v=0.3.2&b=22"></script>
-<script src="auth.js?v=0.3.2&b=22"></script>
-<script src="raman.js?v=0.3.2&b=22"></script>
-<script src="xps.js?v=0.3.2&b=22"></script>
-<script src="eis.js?v=0.3.2&b=22"></script>
-<script src="drt.js?v=0.3.2&b=22"></script>
+<script src="config.js?v=0.3.2&b=23"></script>
+<script src="versions.js?v=0.3.2&b=23"></script>
+<script src="data.js?v=0.3.2&b=23"></script>
+<script src="auth.js?v=0.3.2&b=23"></script>
+<script src="raman.js?v=0.3.2&b=23"></script>
+<script src="xps.js?v=0.3.2&b=23"></script>
+<script src="eis.js?v=0.3.2&b=23"></script>
+<script src="drt.js?v=0.3.2&b=23"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -878,8 +878,9 @@ function wantedCycles(s) {   // the specific list wins when it is not empty; oth
   for (let k = a; k <= b && ks.length < 200; k += st) ks.push(k);
   return {ks, bad: []};
 }
+const curveCycles = c => new Set(c.data.cycles.map(e => e.k).concat(c.data.vqk || []));   // finished cycles and the one still running (curves only)
 function cycleList(s, c) {
-  const have = new Set(c.data.cycles.map(e => e.k));
+  const have = curveCycles(c);
   return wantedCycles(s).ks.filter(k => have.has(k));
 }
 function dqdv(Q, V, mode, sign) {
@@ -962,7 +963,7 @@ async function cyclePlots(m, s, el, K) {     // one plot for each cell, one colo
     if (K.thin) arrs = thinCurves(arrs, K.thin);
     { let j = 0; for (const it of items) { it.data = arrs.slice(j, j + it.n); j += it.n; } }
     $('.cyc-legend', box).innerHTML = ks.map((k, i) => `<span style="color:${vcolor(ks.length > 1 ? i/(ks.length-1) : 0)}">■ ${k}</span>`).join('');
-    { const have = new Set(c.data.cycles.map(e => e.k)), miss = wantedCycles(s).ks.filter(k => !have.has(k));
+    { const have = curveCycles(c), miss = wantedCycles(s).ks.filter(k => !have.has(k));
       if (miss.length) $('.cyc-legend', box).insertAdjacentHTML('beforeend', `<span style="color:#b00">no data: ${miss.length > 12 ? miss.slice(0, 12).join(', ') + ' …' : miss.join(', ')}</span>`); }
     if (!arrs.length) { $('.pp', box).innerHTML = `<div class="note">${K.few}</div>`; continue; }
     const pp = $('.pp', box), xlab = K.xlab(c);
