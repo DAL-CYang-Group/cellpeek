@@ -179,7 +179,7 @@ const NQP = window.NQP = window.NQP || {};
 const $ = (s, el) => (el || document).querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[ch]));
 const ARC_COL = ['#8c8c8c', '#1f77b4', '#2ca02c'];           // contact, then the R_ct semicircle(s)
-const CITE = ['Fitting code: C. Yang, cellpeek-eis, Zenodo, doi:10.5281/zenodo.24283256',
+const CITE = ['How to cite the source code: Chongyin Yang, cellpeek-eis: ultra-fast batch equivalent-circuit fitting of impedance spectra of Li-ion cells, Zenodo (2026), doi:10.5281/zenodo.24283256',
   'Circuit and definition of R_ct: A.S. Keefe, R. Weber, I.G. Hill, J.R. Dahn, J. Electrochem. Soc. 167 (2020) 120507, doi:10.1149/1945-7111/abaa1b; D.W. Abarbanel, K.J. Nelson, J.R. Dahn, J. Electrochem. Soc. 163 (2016) A522, doi:10.1149/2.0901603jes'];
 const doiLinks = t => esc(t).replace(/doi:(10\.[^\s;,]+)/g, '<a href="https://doi.org/$1" target="_blank" rel="noopener">doi:$1</a>');
 const POOR = 2.5;                                            // fit error (%) above which a fit is marked as poor
@@ -290,7 +290,7 @@ function build() {
   sec.innerHTML = `
     <div id="e_msg" style="padding:6px 16px 0;font-size:13px;color:var(--muted);min-height:6px"></div>
     <div id="e_warn" hidden style="margin:6px 16px 0;padding:7px 12px;border:1px solid #f0d9a0;background:#fff6e0;border-radius:7px;font-size:13px"></div>
-    <div id="e_cite" style="margin:6px 16px 0;font-size:12.5px;color:var(--muted)">If you use these results, please cite — ${CITE.map(doiLinks).join(' · ')}</div>
+    <div id="e_cite" style="margin:6px 16px 0;font-size:12.5px;color:var(--muted)"><div><b>${doiLinks(CITE[0]).replace(':', ':</b>')} · <a href="https://github.com/DAL-CYang-Group/cellpeek-eis" target="_blank" rel="noopener">source code on GitHub</a></div><div style="margin-top:2px">Please also cite — ${doiLinks(CITE[1])}</div></div>
     <div class="egrid">
       <div id="e_plots"></div>
       <div class="mod" id="e_res">
