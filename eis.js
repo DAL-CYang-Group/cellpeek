@@ -179,6 +179,9 @@ const NQP = window.NQP = window.NQP || {};
 const $ = (s, el) => (el || document).querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[ch]));
 const ARC_COL = ['#8c8c8c', '#1f77b4', '#2ca02c'];           // contact, then the R_ct semicircle(s)
+const CITE = ['Fitting code: C. Yang, cellpeek-eis, Zenodo, doi:10.5281/zenodo.24283256',
+  'Circuit and definition of R_ct: A.S. Keefe, R. Weber, I.G. Hill, J.R. Dahn, J. Electrochem. Soc. 167 (2020) 120507, doi:10.1149/1945-7111/abaa1b; D.W. Abarbanel, K.J. Nelson, J.R. Dahn, J. Electrochem. Soc. 163 (2016) A522, doi:10.1149/2.0901603jes'];
+const doiLinks = t => esc(t).replace(/doi:(10\.[^\s;,]+)/g, '<a href="https://doi.org/$1" target="_blank" rel="noopener">doi:$1</a>');
 const POOR = 2.5;                                            // fit error (%) above which a fit is marked as poor
 // One data set = the spectra of one cell over time. Rule: the whole set is fitted with the same model —
 // 3 semicircles by default; 2 can be chosen. The tail is judged per spectrum.
@@ -287,6 +290,7 @@ function build() {
   sec.innerHTML = `
     <div id="e_msg" style="padding:6px 16px 0;font-size:13px;color:var(--muted);min-height:6px"></div>
     <div id="e_warn" hidden style="margin:6px 16px 0;padding:7px 12px;border:1px solid #f0d9a0;background:#fff6e0;border-radius:7px;font-size:13px"></div>
+    <div id="e_cite" style="margin:6px 16px 0;font-size:12.5px;color:var(--muted)">If you use these results, please cite — ${CITE.map(doiLinks).join(' · ')}</div>
     <div class="egrid">
       <div id="e_plots"></div>
       <div class="mod" id="e_res">
@@ -358,6 +362,7 @@ function exportCsv() {
   const k = scale(), u = unit().replace('Ω', 'ohm').replace('²', '2'), n7 = v => String(+(+v).toPrecision(6));
   const rows = [['spectrum', `R_HFI (${u})`, `R_ct (${u})`, `semicircle width = R_contact + R_ct (${u})`, `R_contact (${u})`, 'semicircles', 'diffusion tail', 'fit error (%), points with -Z\'\' >= 0', 'fit error (%), all points', 'inductive points']];
   for (const q of S.spectra) { const t = good(q); rows.push([q.name, t ? n7(t.R_HFI * k) : '', t ? n7(t.R_ct * k) : '', t ? n7((t.R_contact + t.R_ct) * k) : '', t ? n7(t.R_contact * k) : '', S.mode, t ? (t.tail ? 'yes' : 'no') : '', t ? t.err.toFixed(2) : 'failed', t && t.errAll != null ? t.errAll.toFixed(2) : '', t ? (t.nSkip ? `${t.nSkip} left out` : t.L ? 'fitted with an inductor' : 'none') : '']); }
+  rows.push([]); for (const c of CITE) rows.push([c]);
   const csv = rows.map(r => r.map(c => /[",\n]/.test(String(c)) ? '"' + String(c).replace(/"/g, '""') + '"' : c).join(',')).join('\r\n') + '\r\n';
   const d = new Date(), stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], {type: 'text/csv'})); a.download = `${stamp}_EIS_RHFI_Rct.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
