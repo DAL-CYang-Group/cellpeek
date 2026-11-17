@@ -291,7 +291,7 @@ function build() {
   sec.innerHTML = `
     <div id="e_msg" style="padding:6px 16px 0;font-size:13px;color:var(--muted);min-height:6px"></div>
     <div id="e_warn" hidden style="margin:6px 16px 0;padding:7px 12px;border:1px solid #f0d9a0;background:#fff6e0;border-radius:7px;font-size:13px"></div>
-    <div id="e_cite" style="margin:6px 16px 0;font-size:12.5px;color:var(--muted)"><div><b>${doiLinks(CITE[0]).replace(':', ':</b>')} · <a href="https://github.com/DAL-CYang-Group/cellpeek-eis" target="_blank" rel="noopener">source code on GitHub</a> · <a href="https://github.com/DAL-CYang-Group/cellpeek-eis#readme" target="_blank" rel="noopener">README</a></div><div style="margin-top:2px">Please also cite — ${doiLinks(CITE[1])}</div></div>
+    <div id="e_cite" style="margin:6px 16px 0;padding:7px 12px;border:1px solid #e3a5a5;background:#fdf1f1;border-radius:7px;font-size:13px;color:#b00000;font-weight:600"><div><b>${doiLinks(CITE[0]).replace(':', ':</b>')} · <a href="https://github.com/DAL-CYang-Group/cellpeek-eis" target="_blank" rel="noopener">source code on GitHub</a> · <a href="https://github.com/DAL-CYang-Group/cellpeek-eis#readme" target="_blank" rel="noopener">README</a></div><div style="margin-top:2px">Please also cite — ${doiLinks(CITE[1])}</div></div>
     <div class="egrid">
       <div id="e_plots"></div>
       <div class="mod" id="e_res">
