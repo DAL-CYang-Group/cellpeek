@@ -185,7 +185,7 @@ const doiLinks = t => esc(t).replace(/doi:(10\.[^\s;,]+)/g, '<a href="https://do
 const POOR = 2.5;                                            // fit error (%) above which a fit is marked as poor
 // One data set = the spectra of one cell over time. Rule: the whole set is fitted with the same model —
 // 3 semicircles by default; 2 can be chosen. The tail is judged per spectrum.
-const S = {spectra: [], mode: 3, area: '', sym: false, skipL: false};      // skipL: leave the inductive points out of the fit      // spectrum: {id, name, f, zr, zi, fit}
+const S = {spectra: [], mode: 3, area: '', sym: false, skipL: true};       // skipL: leave the inductive points out of the fit (on by default)      // spectrum: {id, name, f, zr, zi, fit}
 let seq = 0, busy = false;
 const unit = () => (+S.area > 0 ? 'Ω cm²' : 'Ω');
 const scale = () => (+S.area > 0 ? +S.area : 1) * (S.sym ? 0.5 : 1);      // area-specific; a symmetric cell holds two identical electrodes
@@ -284,7 +284,7 @@ function build() {
     <label title="The same model is used for every spectrum of the set">model <select id="e_mode"><option value="3">3 semicircles</option><option value="2">2 semicircles</option></select></label>
     <label>electrode area <input type="number" id="e_area" min="0" step="any" style="width:70px" placeholder="—"> cm²</label>
     <label title="Two identical electrodes: values are divided by two"><input type="checkbox" id="e_sym"> symmetric cell (÷ 2)</label>
-    <label title="Off: all points are fitted, with an inductor in the model. On: the points with −Z″ &lt; 0 at the high-frequency end are not used (drawn in light grey) and the model has no inductor. Applies to the whole set."><input type="checkbox" id="e_skipl"> leave out inductive points</label>
+    <label title="Off: all points are fitted, with an inductor in the model. On: the points with −Z″ &lt; 0 at the high-frequency end are not used (drawn in light grey) and the model has no inductor. Applies to the whole set."><input type="checkbox" id="e_skipl" checked> leave out inductive points</label>
     <span class="sp"></span>
     <button type="button" id="e_clear">Clear</button>
     <button type="button" id="e_export" class="primary" title="Table with R_HFI and R_ct of every spectrum">Export results</button>`;
@@ -374,12 +374,12 @@ function exportCsv() {
 let saveT = null, ready = false;
 function save() {
   if (!ready || !NQP.idb) return;
-  clearTimeout(saveT); saveT = setTimeout(() => { NQP.idb.set('eis', {spectra: S.spectra, mode: S.mode, area: S.area, sym: S.sym, skipL: S.skipL, seq, fv: FITV}).catch(() => {}); }, 600);
+  clearTimeout(saveT); saveT = setTimeout(() => { NQP.idb.set('eis', {spectra: S.spectra, mode: S.mode, area: S.area, sym: S.sym, skipL: S.skipL, dv: 2, seq, fv: FITV}).catch(() => {}); }, 600);
 }
 async function restore() {
   try { const r = NQP.idb && await NQP.idb.get('eis');
-    if (r && Array.isArray(r.spectra)) { Object.assign(S, {spectra: r.spectra, mode: r.fv !== FITV ? 3 : r.mode === 2 ? 2 : 3, area: r.area || '', sym: !!r.sym, skipL: !!r.skipL}); seq = r.seq || r.spectra.length;      // sets saved with an older fitting method start again with the default model
-      for (const q of S.spectra) if (q.fit && q.fit.v !== FITV) q.fit = null;        // fitted with an older method: fit again
+    if (r && Array.isArray(r.spectra)) { Object.assign(S, {spectra: r.spectra, mode: r.fv !== FITV ? 3 : r.mode === 2 ? 2 : 3, area: r.area || '', sym: !!r.sym, skipL: r.dv === 2 ? !!r.skipL : true});     // dv 2: saved after leaving out the inductive points became the default seq = r.seq || r.spectra.length;      // sets saved with an older fitting method start again with the default model
+      for (const q of S.spectra) if (q.fit && (q.fit.v !== FITV || (r.dv !== 2 && !r.skipL))) q.fit = null;        // fitted with an older method: fit again
       if ($('#e_area')) { $('#e_area').value = S.area; $('#e_sym').checked = S.sym; $('#e_skipl').checked = S.skipL; } } } catch {}
   ready = true;
 }
