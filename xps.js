@@ -519,6 +519,8 @@ function build() {
     <button type="button" id="xr_export" class="primary" title="Write corrected spectra, fit curves and peak tables">Export results</button>`;
   const sec = $('section[data-pane=xps]');
   sec.innerHTML = `
+    <div id="xr_dev" style="margin:6px 16px 0;padding:7px 12px;border:1px solid #e3a5a5;background:#fdf1f1;border-radius:7px;font-size:13px;color:#b00000;font-weight:600">
+      ⚠ NMC XPS is still under development. Please do not use it for now: the results are not checked yet.</div>
     <div id="xr_msg"></div>
     <div class="rgrid" id="xr_grid">
       <div class="mod rwf">
