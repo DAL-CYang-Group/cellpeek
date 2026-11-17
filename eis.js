@@ -206,11 +206,12 @@ async function addFiles(files) {
   render(); fitQueue(S.spectra.filter(s => !s.fit));
 }
 function refitAll() { for (const q of S.spectra) q.fit = null; render(); fitQueue(S.spectra.slice()); }
+const secs = ms => (ms < 9995 ? (ms / 1000).toFixed(2) : (ms / 1000).toFixed(1)) + ' s';      // time from the first fit to the last, drawing included
 function fitQueue(list) {                         // one spectrum at a time, so the page stays responsive
   if (busy) { fitQueue.more = (fitQueue.more || []).concat(list); return; }
-  busy = true; let i = 0; const total = list.length, mode = S.mode;
+  busy = true; let i = 0; const total = list.length, mode = S.mode, t0 = performance.now();
   const step = () => {
-    if (i >= list.length || mode !== S.mode) { busy = false; if (mode === S.mode) msg(total ? `Fitted ${total} spectr${total === 1 ? 'um' : 'a'} with ${S.mode} semicircles` : ''); render();
+    if (i >= list.length || mode !== S.mode) { busy = false; if (mode === S.mode) msg(total ? `Fitted ${total} spectr${total === 1 ? 'um' : 'a'} with ${S.mode} semicircles in ${secs(performance.now() - t0)}` : ''); render();
       const m = fitQueue.more; fitQueue.more = null; if (m && m.length) fitQueue(m.filter(s => !s.fit)); return; }
     const s = list[i++]; msg(`Fitting ${i} / ${total} …`);
     if (!s.fit) { try { s.fit = fitSpectrum(s, {n: mode, tail: 'auto', inductive: S.skipL ? 'skip' : 'fit'}) || {failed: true}; } catch (e) { s.fit = {failed: true, note: e.message}; } }
@@ -290,7 +291,7 @@ function build() {
   sec.innerHTML = `
     <div id="e_msg" style="padding:6px 16px 0;font-size:13px;color:var(--muted);min-height:6px"></div>
     <div id="e_warn" hidden style="margin:6px 16px 0;padding:7px 12px;border:1px solid #f0d9a0;background:#fff6e0;border-radius:7px;font-size:13px"></div>
-    <div id="e_cite" style="margin:6px 16px 0;font-size:12.5px;color:var(--muted)"><div><b>${doiLinks(CITE[0]).replace(':', ':</b>')} · <a href="https://github.com/DAL-CYang-Group/cellpeek-eis" target="_blank" rel="noopener">source code on GitHub</a></div><div style="margin-top:2px">Please also cite — ${doiLinks(CITE[1])}</div></div>
+    <div id="e_cite" style="margin:6px 16px 0;font-size:12.5px;color:var(--muted)"><div><b>${doiLinks(CITE[0]).replace(':', ':</b>')} · <a href="https://github.com/DAL-CYang-Group/cellpeek-eis" target="_blank" rel="noopener">source code on GitHub</a> · <a href="https://github.com/DAL-CYang-Group/cellpeek-eis#readme" target="_blank" rel="noopener">README</a></div><div style="margin-top:2px">Please also cite — ${doiLinks(CITE[1])}</div></div>
     <div class="egrid">
       <div id="e_plots"></div>
       <div class="mod" id="e_res">
