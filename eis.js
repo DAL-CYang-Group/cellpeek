@@ -287,7 +287,7 @@ function build() {
     <label title="Off: all points are fitted, with an inductor in the model. On: the points with −Z″ &lt; 0 at the high-frequency end are not used (drawn in light grey) and the model has no inductor. Applies to the whole set."><input type="checkbox" id="e_skipl" checked> leave out inductive points</label>
     <span class="sp"></span>
     <button type="button" id="e_clear">Clear</button>
-    <button type="button" id="e_export" class="primary" title="Table with R_HFI and R_ct of every spectrum">Export results</button>`;
+    <button type="button" id="e_export" class="primary" title="Excel file: sheet Results with R_HFI and R_ct of every spectrum, sheet Curves with the measured points and the fitted curve">Export results</button>`;
   sec.innerHTML = `
     <div id="e_msg" style="padding:6px 16px 0;font-size:13px;color:var(--muted);min-height:6px"></div>
     <div id="e_warn" hidden style="margin:6px 16px 0;padding:7px 12px;border:1px solid #f0d9a0;background:#fff6e0;border-radius:7px;font-size:13px"></div>
@@ -330,11 +330,11 @@ function renderTable() {
   const k = scale(), u = unit();
   const rows = S.spectra.map(q => { const t = good(q), poor = t && t.err > POOR;
     return `<tr data-id="${q.id}" style="cursor:pointer"><td style="max-width:230px;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left" title="${esc(q.name)}"><bdi>${esc(q.name)}</bdi></td>
-      <td style="text-align:right"><b>${t ? fmt(t.R_HFI * k) : q.fit ? 'failed' : '…'}</b></td><td style="text-align:right"><b>${t ? fmt(t.R_ct * k) : ''}</b></td><td style="text-align:right">${t ? fmt((t.R_contact + t.R_ct) * k) : ''}</td>
+      <td style="text-align:right"><b>${t ? fmt(t.R_HFI * k) : q.fit ? 'failed' : '…'}</b></td><td style="text-align:right">${t ? fmt(t.R_contact * k) : ''}</td><td style="text-align:right"><b>${t ? fmt(t.R_ct * k) : ''}</b></td><td style="text-align:right">${t ? fmt((t.R_contact + t.R_ct) * k) : ''}</td>
       <td>${t ? (t.tail ? 'yes' : 'no') : ''}</td>
       <td style="text-align:right;${poor ? 'color:#b00;font-weight:600' : 'color:var(--muted)'}">${t ? t.err.toFixed(2) : ''}</td>
       <td class="x" title="Remove">✕</td></tr>`; }).join('');
-  $('#e_tab').innerHTML = S.spectra.length ? `<table class="pk"><thead><tr><th>Spectrum</th><th style="text-align:right">R_HFI<br>(${u})</th><th style="text-align:right">R_ct<br>(${u})</th><th style="text-align:right" title="Total width of the semicircles: contact + R_ct. This sum is steadier than its two parts when the semicircles overlap">width<br>(${u})</th><th>tail</th>
+  $('#e_tab').innerHTML = S.spectra.length ? `<table class="pk"><thead><tr><th>Spectrum</th><th style="text-align:right">R_HFI<br>(${u})</th><th style="text-align:right" title="Diameter of the first, highest-frequency semicircle (contact); not part of R_ct">R_contact<br>(${u})</th><th style="text-align:right">R_ct<br>(${u})</th><th style="text-align:right" title="Total width of the semicircles: contact + R_ct. This sum is steadier than its two parts when the semicircles overlap">width<br>(${u})</th><th>tail</th>
       <th style="text-align:right" title="Root-mean-square relative deviation between fit and data, over the points with −Z″ ≥ 0 (the inductive high-frequency points are fitted but not counted here)">error<br>(%)</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="gmuted" style="padding:8px 2px">No spectra yet.</div>';
   $('#e_tab').querySelectorAll('tr[data-id]').forEach(tr => { const q = S.spectra.find(z => z.id === tr.dataset.id);
@@ -358,17 +358,59 @@ function render() {
   for (const s of S.spectra) hookCard($('#card_' + s.id), s);
   renderTable(); drawAll();
 }
-function exportCsv() {
+// ---------------- export: one .xlsx with two sheets (written here, no library) ----------------
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC_T[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function zipStore(files) {                        // files: [[name, text]], stored without compression
+  const enc = new TextEncoder(), parts = [], cen = []; let off = 0;
+  const hdr = (sig, n) => { const v = new DataView(new ArrayBuffer(n)); v.setUint32(0, sig, true); return v; };
+  for (const [name, text] of files) { const nm = enc.encode(name), data = enc.encode(text), crc = crc32(data);
+    const l = hdr(0x04034b50, 30); l.setUint16(4, 20, true); l.setUint16(6, 0x0800, true); l.setUint16(12, 0x21, true); l.setUint32(14, crc, true); l.setUint32(18, data.length, true); l.setUint32(22, data.length, true); l.setUint16(26, nm.length, true);
+    const c = hdr(0x02014b50, 46); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(14, 0x21, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, nm.length, true); c.setUint32(42, off, true);
+    parts.push(l, nm, data); cen.push(c, nm); off += 30 + nm.length + data.length; }
+  const csize = cen.reduce((a, x) => a + x.byteLength, 0), e = hdr(0x06054b50, 22);
+  e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, csize, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...cen, e], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+const colName = i => { let s = ''; for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s; };
+const xmlEsc = t => String(t).replace(/[&<>]/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[ch])).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+function sheetXml(rows, widths) {                 // a cell: number, text, or '' / null / undefined for an empty cell
+  const body = rows.map((r, i) => `<row r="${i + 1}">` + r.map((c, j) => c === '' || c == null ? '' : typeof c === 'number' && isFinite(c) ? `<c r="${colName(j)}${i + 1}"><v>${c}</v></c>`
+    : `<c r="${colName(j)}${i + 1}" t="inlineStr"><is><t xml:space="preserve">${xmlEsc(c)}</t></is></c>`).join('') + '</row>').join('');
+  const cols = widths ? '<cols>' + widths.map((w, j) => `<col min="${j + 1}" max="${j + 1}" width="${w}" customWidth="1"/>`).join('') + '</cols>' : '';
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${cols}<sheetData>${body}</sheetData></worksheet>`;
+}
+function xlsx(sheets) {                           // sheets: [{name, rows, widths}]
+  const X = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>', P = 'http://schemas.openxmlformats.org/', R = P + 'officeDocument/2006/relationships';
+  return zipStore([
+    ['[Content_Types].xml', `${X}<Types xmlns="${P}package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`],
+    ['_rels/.rels', `${X}<Relationships xmlns="${P}package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ['xl/workbook.xml', `${X}<workbook xmlns="${P}spreadsheetml/2006/main" xmlns:r="${R}"><sheets>${sheets.map((s, i) => `<sheet name="${xmlEsc(s.name).replace(/"/g, '&quot;')}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`],
+    ['xl/_rels/workbook.xml.rels', `${X}<Relationships xmlns="${P}package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${R}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}</Relationships>`],
+    ...sheets.map((s, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s.rows, s.widths)])]);
+}
+function exportBook() {
+  const k = scale(), u = unit().replace('Ω', 'ohm').replace('²', '2'), n6 = v => +(+v).toPrecision(6);
+  const res = [['spectrum', `R_HFI (${u})`, `R_ct (${u})`, `semicircle width = R_contact + R_ct (${u})`, `R_contact (${u})`, 'semicircles', 'diffusion tail', 'fit error (%), points with -Z\'\' >= 0', 'fit error (%), all points', 'inductive points']];
+  for (const q of S.spectra) { const t = good(q); res.push([q.name, t ? n6(t.R_HFI * k) : '', t ? n6(t.R_ct * k) : '', t ? n6((t.R_contact + t.R_ct) * k) : '', t ? n6(t.R_contact * k) : '', S.mode, t ? (t.tail ? 'yes' : 'no') : '', t ? +t.err.toFixed(2) : 'failed', t && t.errAll != null ? +t.errAll.toFixed(2) : '', t ? (t.nSkip ? `${t.nSkip} left out` : t.L ? 'fitted with an inductor' : 'none') : '']); }
+  res.push([]); for (const c of CITE) res.push([c]);
+  // Curves: one block of five columns for each spectrum (measured points and the fit at the same frequencies), an empty column between blocks.
+  // Inductive points that were left out of the fit are not listed.
+  const W = 6, cur = [[], []]; let nmax = 0;
+  S.spectra.forEach((q, b) => { const t = good(q), i0 = t ? t.nSkip || 0 : 0, c = b * W; nmax = Math.max(nmax, q.f.length - i0);
+    cur[0][c] = q.name; ['f (Hz)', `Z' (${u})`, `-Z'' (${u})`, `fit Z' (${u})`, `fit -Z'' (${u})`].forEach((h, j) => { cur[1][c + j] = h; });
+    for (let i = i0; i < q.f.length; i++) { const r = cur[2 + i - i0] || (cur[2 + i - i0] = []), z = t ? zModel(t.model, q.f[i]) : null;
+      r[c] = q.f[i]; r[c + 1] = n6(q.zr[i] * k); r[c + 2] = n6(-q.zi[i] * k); if (z) { r[c + 3] = n6(z[0] * k); r[c + 4] = n6(-z[1] * k); } } });
+  for (const r of cur) for (let j = 0; j < r.length; j++) if (r[j] === undefined) r[j] = '';
+  return xlsx([{name: 'Results', rows: res, widths: [34, 12, 12, 16, 14, 12, 12, 14, 14, 22]}, {name: 'Curves', rows: cur}]);
+}
+function exportCsv() {                            // name kept; the file is an Excel workbook: sheet Results and sheet Curves
   if (!S.spectra.length) return msg('Nothing to export');
-  const k = scale(), u = unit().replace('Ω', 'ohm').replace('²', '2'), n7 = v => String(+(+v).toPrecision(6));
-  const rows = [['spectrum', `R_HFI (${u})`, `R_ct (${u})`, `semicircle width = R_contact + R_ct (${u})`, `R_contact (${u})`, 'semicircles', 'diffusion tail', 'fit error (%), points with -Z\'\' >= 0', 'fit error (%), all points', 'inductive points']];
-  for (const q of S.spectra) { const t = good(q); rows.push([q.name, t ? n7(t.R_HFI * k) : '', t ? n7(t.R_ct * k) : '', t ? n7((t.R_contact + t.R_ct) * k) : '', t ? n7(t.R_contact * k) : '', S.mode, t ? (t.tail ? 'yes' : 'no') : '', t ? t.err.toFixed(2) : 'failed', t && t.errAll != null ? t.errAll.toFixed(2) : '', t ? (t.nSkip ? `${t.nSkip} left out` : t.L ? 'fitted with an inductor' : 'none') : '']); }
-  rows.push([]); for (const c of CITE) rows.push([c]);
-  const csv = rows.map(r => r.map(c => /[",\n]/.test(String(c)) ? '"' + String(c).replace(/"/g, '""') + '"' : c).join(',')).join('\r\n') + '\r\n';
   const d = new Date(), stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], {type: 'text/csv'})); a.download = `${stamp}_EIS_RHFI_Rct.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  const a = document.createElement('a'); a.href = URL.createObjectURL(exportBook()); a.download = `${stamp}_EIS_RHFI_Rct.xlsx`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   if (NQP.log) NQP.log('eis_export', {n: S.spectra.length});
 }
+if (typeof window !== 'undefined') window.NQP_eisBook = exportBook;      // for checking the file from the console
 
 // the set (spectra, fits, model, area) is kept in this browser and comes back when the page is opened again
 let saveT = null, ready = false;
