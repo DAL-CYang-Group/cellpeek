@@ -327,14 +327,14 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.3.3&b=36"></script>
-<script src="versions.js?v=0.3.3&b=36"></script>
-<script src="data.js?v=0.3.3&b=36"></script>
-<script src="auth.js?v=0.3.3&b=36"></script>
-<script src="raman.js?v=0.3.3&b=36"></script>
-<script src="xps.js?v=0.3.3&b=36"></script>
-<script src="eis.js?v=0.3.3&b=36"></script>
-<script src="drt.js?v=0.3.3&b=36"></script>
+<script src="config.js?v=0.3.3&b=37"></script>
+<script src="versions.js?v=0.3.3&b=37"></script>
+<script src="data.js?v=0.3.3&b=37"></script>
+<script src="auth.js?v=0.3.3&b=37"></script>
+<script src="raman.js?v=0.3.3&b=37"></script>
+<script src="xps.js?v=0.3.3&b=37"></script>
+<script src="eis.js?v=0.3.3&b=37"></script>
+<script src="drt.js?v=0.3.3&b=37"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -800,7 +800,7 @@ function crosshair(u) {
 }
 function axisOverlay(u, m, xlab, ylab) {
   crosshair(u);
-  const L = LIM[m.id] || (LIM[m.id] = {}), root = u.root, els = {};
+  const L = LIM[m.id] || (LIM[m.id] = {}), root = u.root, els = {}, base = {};      // base[a] = the range of axis a when the plot was drawn
   u.expLim = L; u.expTitle = m.title;
   const box = (key, cls) => {
     const i = document.createElement('input'); i.type = 'text'; i.className = 'lim ' + cls;
@@ -814,7 +814,9 @@ function axisOverlay(u, m, xlab, ylab) {
     const fixed = L[a + 'min'] != null || L[a + 'max'] != null;
     d.innerHTML = `<span>${text}</span>`; root.appendChild(d);
     const b = document.createElement('button'); b.type = 'button'; b.className = 'axauto' + (fixed ? ' set' : '');
-    b.textContent = 'auto'; b.title = 'Autoscale ' + a.toUpperCase(); b.onclick = () => { L[a + 'min'] = L[a + 'max'] = null; renderOne(m); };
+    b.textContent = 'auto'; b.title = 'Autoscale ' + a.toUpperCase();
+    b.onclick = () => { const fix = L[a + 'min'] != null || L[a + 'max'] != null; L[a + 'min'] = L[a + 'max'] = null;
+      if (fix) renderOne(m); else if (base[a]) u.setScale(a, {min: base[a][0], max: base[a][1]}); };        // typed end: draw again; zoomed with the mouse: back to the range the plot started with
     root.appendChild(b); d.btn = b; return d;
   };
   const xmin = box('xmin', ''), xmax = box('xmax', 'r'), ymax = box('ymax', 'r'), ymin = box('ymin', 'r');
@@ -832,6 +834,9 @@ function axisOverlay(u, m, xlab, ylab) {
   const show = () => {
     for (const a of ['x', 'y']) {
       const sc = u.scales[a], span = (sc.max ?? 0) - (sc.min ?? 0);
+      if (!base[a] && sc.min != null && sc.max != null) base[a] = [sc.min, sc.max];
+      { const z = base[a] && (Math.abs(sc.min - base[a][0]) > 1e-9 * Math.abs(span || 1) || Math.abs(sc.max - base[a][1]) > 1e-9 * Math.abs(span || 1));      // zoomed with the mouse
+        (a === 'x' ? lx : ly).btn.classList.toggle('set', !!z || L[a + 'min'] != null || L[a + 'max'] != null); }
       for (const [k, v] of [[a + 'min', sc.min], [a + 'max', sc.max]]) {
         const i = els[k]; if (document.activeElement === i) continue;
         i.value = i.dataset.v = fmtLim(v, span); i.classList.toggle('set', L[k] != null);
