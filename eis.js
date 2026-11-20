@@ -287,7 +287,7 @@ function build() {
     <label title="Off: all points are fitted, with an inductor in the model. On: the points with −Z″ &lt; 0 at the high-frequency end are not used (drawn in light grey) and the model has no inductor. Applies to the whole set."><input type="checkbox" id="e_skipl" checked> leave out inductive points</label>
     <span class="sp"></span>
     <button type="button" id="e_clear">Clear</button>
-    <button type="button" id="e_export" class="primary" title="Excel file: sheet Results with R_HFI and R_ct of every spectrum, sheet Curves with the measured points and the fitted curve">Export results</button>`;
+    <button type="button" id="e_export" class="primary" title="Excel file: sheet Results with R_HFI and R_ct of every spectrum, then one sheet for each spectrum with the measured points and the fitted curve">Export results</button>`;
   sec.innerHTML = `
     <div id="e_msg" style="padding:6px 16px 0;font-size:13px;color:var(--muted);min-height:6px"></div>
     <div id="e_warn" hidden style="margin:6px 16px 0;padding:7px 12px;border:1px solid #f0d9a0;background:#fff6e0;border-radius:7px;font-size:13px"></div>
@@ -358,7 +358,7 @@ function render() {
   for (const s of S.spectra) hookCard($('#card_' + s.id), s);
   renderTable(); drawAll();
 }
-// ---------------- export: one .xlsx with two sheets (written here, no library) ----------------
+// ---------------- export: one .xlsx, written here without a library ----------------
 const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
 const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC_T[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
 function zipStore(files) {                        // files: [[name, text]], stored without compression
@@ -394,17 +394,18 @@ function exportBook() {
   const res = [['spectrum', `R_HFI (${u})`, `R_ct (${u})`, `semicircle width = R_contact + R_ct (${u})`, `R_contact (${u})`, 'semicircles', 'diffusion tail', 'fit error (%), points with -Z\'\' >= 0', 'fit error (%), all points', 'inductive points']];
   for (const q of S.spectra) { const t = good(q); res.push([q.name, t ? n6(t.R_HFI * k) : '', t ? n6(t.R_ct * k) : '', t ? n6((t.R_contact + t.R_ct) * k) : '', t ? n6(t.R_contact * k) : '', S.mode, t ? (t.tail ? 'yes' : 'no') : '', t ? +t.err.toFixed(2) : 'failed', t && t.errAll != null ? +t.errAll.toFixed(2) : '', t ? (t.nSkip ? `${t.nSkip} left out` : t.L ? 'fitted with an inductor' : 'none') : '']); }
   res.push([]); for (const c of CITE) res.push([c]);
-  // Curves: one block of five columns for each spectrum (measured points and the fit at the same frequencies), an empty column between blocks.
-  // Inductive points that were left out of the fit are not listed.
-  const W = 6, cur = [[], []]; let nmax = 0;
-  S.spectra.forEach((q, b) => { const t = good(q), i0 = t ? t.nSkip || 0 : 0, c = b * W; nmax = Math.max(nmax, q.f.length - i0);
-    cur[0][c] = q.name; ['f (Hz)', `Z' (${u})`, `-Z'' (${u})`, `fit Z' (${u})`, `fit -Z'' (${u})`].forEach((h, j) => { cur[1][c + j] = h; });
-    for (let i = i0; i < q.f.length; i++) { const r = cur[2 + i - i0] || (cur[2 + i - i0] = []), z = t ? zModel(t.model, q.f[i]) : null;
-      r[c] = q.f[i]; r[c + 1] = n6(q.zr[i] * k); r[c + 2] = n6(-q.zi[i] * k); if (z) { r[c + 3] = n6(z[0] * k); r[c + 4] = n6(-z[1] * k); } } });
-  for (const r of cur) for (let j = 0; j < r.length; j++) if (r[j] === undefined) r[j] = '';
-  return xlsx([{name: 'Results', rows: res, widths: [34, 12, 12, 16, 14, 12, 12, 14, 14, 22]}, {name: 'Curves', rows: cur}]);
+  // one sheet for each spectrum: measured points and the fit at the same frequencies. Inductive points that were left out of the fit are not listed.
+  const used = new Set(['results']), sheets = [{name: 'Results', rows: res, widths: [34, 12, 12, 16, 14, 12, 12, 14, 14, 22]}];
+  const sheetName = (nm, n) => {                  // Excel: at most 31 characters, none of [ ] : * ? / \, no ' at either end, no two alike
+    const base = String(nm).replace(/[\[\]:*?\/\\]/g, '_').replace(/^'+|'+$/g, '').trim() || 'spectrum ' + n; let s = base.slice(-31);        // the end of a name is what tells the spectra of a series apart
+    for (let k = 2; used.has(s.toLowerCase()); k++) { const t = ' (' + k + ')'; s = base.slice(-(31 - t.length)) + t; }
+    used.add(s.toLowerCase()); return s; };
+  S.spectra.forEach((q, b) => { const t = good(q), i0 = t ? t.nSkip || 0 : 0, rows = [[q.name], ['f (Hz)', `Z' (${u})`, `-Z'' (${u})`, `fit Z' (${u})`, `fit -Z'' (${u})`]];
+    for (let i = i0; i < q.f.length; i++) { const z = t ? zModel(t.model, q.f[i]) : null; rows.push([q.f[i], n6(q.zr[i] * k), n6(-q.zi[i] * k), z ? n6(z[0] * k) : '', z ? n6(-z[1] * k) : '']); }
+    sheets.push({name: sheetName(q.name, b + 1), rows, widths: [14, 14, 14, 14, 14]}); });
+  return xlsx(sheets);
 }
-function exportCsv() {                            // name kept; the file is an Excel workbook: sheet Results and sheet Curves
+function exportCsv() {                            // name kept; the file is an Excel workbook: sheet Results and one sheet for each spectrum
   if (!S.spectra.length) return msg('Nothing to export');
   const d = new Date(), stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   const a = document.createElement('a'); a.href = URL.createObjectURL(exportBook()); a.download = `${stamp}_EIS_RHFI_Rct.xlsx`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
