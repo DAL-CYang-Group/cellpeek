@@ -103,13 +103,13 @@
   .axlab.y { writing-mode:vertical-rl; transform:rotate(180deg); }
   .axauto { position:absolute; z-index:6; font-size:10.5px; padding:0 5px; border-radius:8px; line-height:15px; color:var(--accent); border-color:var(--accent); background:#fff; }
   .axauto.set { background:var(--accent); color:#fff; }
-  /* Neware plots: the end values read like tick numbers in a faint box; a fixed end is tinted, and only then the small "auto" (back to autoscale) shows */
-  #mods .lim { border-color:#e4e8ed; border-radius:4px; color:var(--text); font-size:11.5px; height:20px; padding:0 4px; }
-  #mods .lim:hover, #mods .lim:focus { border-color:var(--accent); }
-  #mods .lim.set { border-color:var(--accent); background:#eef3fb; color:var(--accent); }
-  #mods .axauto { display:none; }
-  #mods .axauto.set { display:block; background:#fff; color:var(--accent); border:none; padding:0 2px; font-size:10.5px; line-height:14px; text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
-  #mods .axauto.set:hover { color:var(--text); }
+  /* Neware, Raman and XPS plots: the end values read like tick numbers in a faint box; a fixed end is tinted, and only then the small "auto" (back to autoscale) shows */
+  :is(#mods, .rgrid) .lim { border-color:#e4e8ed; border-radius:4px; color:var(--text); font-size:11.5px; height:20px; padding:0 4px; }
+  :is(#mods, .rgrid) .lim:hover, :is(#mods, .rgrid) .lim:focus { border-color:var(--accent); }
+  :is(#mods, .rgrid) .lim.set { border-color:var(--accent); background:#eef3fb; color:var(--accent); }
+  :is(#mods, .rgrid) .axauto { display:none; }
+  :is(#mods, .rgrid) .axauto.set { display:block; background:#fff; color:var(--accent); border:none; padding:0 2px; font-size:10.5px; line-height:14px; text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
+  :is(#mods, .rgrid) .axauto.set:hover { color:var(--text); }
   .expbtn { margin-left:auto; font-size:11.5px; padding:2px 9px; border-radius:10px; color:var(--accent); border-color:var(--accent); background:#fff; }
   .expbtn:hover { background:var(--accent); color:#fff; }
   .expbtn:disabled, .expbtn:disabled:hover { color:var(--muted); border-color:var(--line); background:#fff; cursor:not-allowed; }
@@ -327,14 +327,14 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.3.3&b=37"></script>
-<script src="versions.js?v=0.3.3&b=37"></script>
-<script src="data.js?v=0.3.3&b=37"></script>
-<script src="auth.js?v=0.3.3&b=37"></script>
-<script src="raman.js?v=0.3.3&b=37"></script>
-<script src="xps.js?v=0.3.3&b=37"></script>
-<script src="eis.js?v=0.3.3&b=37"></script>
-<script src="drt.js?v=0.3.3&b=37"></script>
+<script src="config.js?v=0.3.3&b=38"></script>
+<script src="versions.js?v=0.3.3&b=38"></script>
+<script src="data.js?v=0.3.3&b=38"></script>
+<script src="auth.js?v=0.3.3&b=38"></script>
+<script src="raman.js?v=0.3.3&b=38"></script>
+<script src="xps.js?v=0.3.3&b=38"></script>
+<script src="eis.js?v=0.3.3&b=38"></script>
+<script src="drt.js?v=0.3.3&b=38"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
