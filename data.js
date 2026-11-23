@@ -340,6 +340,11 @@ NQP.index = {
     if (local.showAll) for (const f of local.subs) add(f);
     return out;
   },
+  all() {                                      // [name, dir] for every .txt in every NEWARE folder whose list is known (find.js)
+    const out = [];
+    for (const f of [...local.roots.map(r => r.name), ...local.subs]) for (const [n, k] of local.names(f)) if (k === 'file' && isTxt(n)) out.push([n, f]);
+    return out;
+  },
   async readAll() { local.showAll = true; for (const f of local.subs) if (!(await local.cached(f))) local.scan(f); emit(); },
   candidates(bc) { return [...new Set(local.lookup(bc).map(x => x[1]))]; },
 };
@@ -350,5 +355,6 @@ document.addEventListener('visibilitychange', () => {        // back to the tab:
   local.pull().then(ok => { if (!ok) local.refresh(MAIN_AGE); }, () => local.refresh(MAIN_AGE));
 });
 NQP._useHandle = async (h) => { await local.use(h); await idb.set('cycling', h); };   // used by the automated test only
-NQP.clearCache = async () => { await idb.clear('cache'); localStorage.removeItem('nqp_cache_order'); local.mem.clear(); };
+NQP.clearCache = async () => { await idb.clear('cache'); await idb.del('trk').catch(() => {});   // 'trk': the tracker rows of find.js
+ localStorage.removeItem('nqp_cache_order'); local.mem.clear(); };
 })();

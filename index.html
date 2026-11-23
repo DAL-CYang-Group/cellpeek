@@ -55,7 +55,33 @@
   #cellinfo td.fn { word-break:break-all; font-weight:600; }
   #cellinfo select { font-size:12px; max-width:100%; }
   #findbar { padding-top:0; }
-  #kw { width:400px; }
+  #kw { width:300px; }
+  #ask { width:360px; }
+  #askbox { margin:6px 16px 0; background:var(--card); border:1px solid var(--line); border-radius:8px; }
+  #askbox .kh { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--line); font-size:13px; }
+  #askbox .kh .sp { margin-left:auto; }
+  #askbox .kh button { padding:2px 10px; font-size:12.5px; }
+  #askterms { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  #askterms .trm { display:inline-flex; align-items:center; gap:4px; padding:1px 2px 1px 9px; border:1px solid #c5d6f0; border-radius:12px; background:#eef3fb; font-size:12.5px; cursor:pointer; }
+  #askterms .trm.not { background:#fdeeee; border-color:#eec3c3; }
+  #askterms .trm a { color:var(--muted); text-decoration:none; padding:0 5px; }
+  #askterms .trm a:hover { color:var(--text); }
+  #askplus { font-size:12px; text-decoration:none; }
+  #askterms .trmedit { width:260px; padding:1px 6px; font-size:12.5px; }
+  #askinfo { padding:4px 10px; font-size:12px; color:var(--muted); border-bottom:1px solid var(--line); }
+  #asklist { max-height:360px; overflow-y:auto; font-size:12.5px; }
+  #asklist .grp { display:flex; gap:8px; align-items:baseline; padding:5px 10px 3px; background:#f3f5f8; position:sticky; top:0; z-index:1; }
+  #asklist .grp span { color:var(--muted); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  #asklist .grp a { margin-left:auto; font-size:11.5px; white-space:nowrap; }
+  #asklist .row { display:grid; grid-template-columns:64px minmax(0, 1fr) auto; gap:10px; align-items:baseline; padding:3px 10px; cursor:pointer; user-select:none; border-left:3px solid transparent; }
+  #asklist .row:hover { background:#f3f5f8; }
+  #asklist .row.sel { background:#dfeafb; border-left-color:var(--accent); }
+  #asklist .row.added, #asklist .row.nodata { color:var(--muted); cursor:default; }
+  #asklist .bc { font-weight:600; font-variant-numeric:tabular-nums; }
+  #asklist .tx { word-break:break-word; }
+  #asklist .mt { color:var(--muted); font-size:11px; white-space:nowrap; max-width:340px; overflow:hidden; text-overflow:ellipsis; }
+  #asklist mark { background:#fff2a8; padding:0; }
+  #asklist .none { padding:10px; color:var(--muted); }
   #idx { font-size:12px; color:var(--muted); }
   #idx a { color:var(--accent); }
   #kwbox { margin:6px 16px 0; background:var(--card); border:1px solid var(--line); border-radius:8px; }
@@ -283,7 +309,8 @@
   <span id="src" hidden></span>
 </div>
 <div class="toolbar" data-pane="neware" id="findbar">
-  <input id="kw" type="text" placeholder="Search file names: name CYY, temperature 40C, voltage 42V …" title="Type any words from the file name, e.g. the name abbreviation (CYY), temperature (40C), voltage (42V), date (261021). All words must appear, in any order; upper/lower case ignored.">
+  <input id="ask" type="text" placeholder="Find cells: Ni65 graphite with VC, then Enter" title="Describe the cells, in English or Chinese, e.g. Ni65 graphite cells with VC · LFP 40C 4.3V without FEC. The cell trackers of the lab and the Neware file names are searched. The terms that were understood are shown and can be changed.">
+  <input id="kw"type="text" placeholder="Search file names: name CYY, temperature 40C, voltage 42V …" title="Type any words from the file name, e.g. the name abbreviation (CYY), temperature (40C), voltage (42V), date (261021). All words must appear, in any order; upper/lower case ignored.">
   <label title="Also search the other NEWARE... folders (slow the first time they are read)"><input type="checkbox" id="kwall"> all NEWARE folders</label>
   <span class="sp"></span>
   <span id="idx"></span>
@@ -300,6 +327,13 @@
 <div id="banner" hidden></div>
 <div id="gate" hidden><div id="gatecard"></div></div>
 <section data-pane="neware">
+<div id="askbox" hidden>
+  <div class="kh"><span id="askterms"></span><span class="sp"></span>
+    <button type="button" id="askselall">Select all</button><button type="button" id="asknone">Clear</button>
+    <button type="button" id="askadd" class="primary">Add selected</button><button type="button" id="askclose" title="Close">✕</button></div>
+  <div id="askinfo"></div>
+  <div id="asklist" title="Click a cell to select it, click again to let it go; Shift + click selects a range. Hover over a row for the column names."></div>
+</div>
 <div id="kwbox" hidden>
   <div class="kh"><span id="kwn"></span><span class="sp"></span>
     <button type="button" id="kwselall">Select all</button><button type="button" id="kwnone">Clear</button>
@@ -331,6 +365,7 @@
 <script src="versions.js?v=0.3.3&b=38"></script>
 <script src="data.js?v=0.3.3&b=38"></script>
 <script src="auth.js?v=0.3.3&b=38"></script>
+<script src="find.js?v=0.3.3&b=38"></script>
 <script src="raman.js?v=0.3.3&b=38"></script>
 <script src="xps.js?v=0.3.3&b=38"></script>
 <script src="eis.js?v=0.3.3&b=38"></script>
@@ -568,6 +603,7 @@ async function loadCell(c, file) {
   renderChips(); markDirty();
 }
 NQP.retryCells = () => cells.filter(c => c.err).forEach(c => loadCell(c));   // after the data folder is connected
+NQP.cellsApi = {add: addCells, list: () => cells};                            // find.js: add the cells picked in "Find cells"
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 const stem = (f) => String(f || '').replace(/\.txt$/i, '');
 function channelOf(f) {          // Neware file names end with device-unit-channel(-test ID), e.g. ...-13-3-5-799 or ..._20_10_6
@@ -596,6 +632,7 @@ function renderChips() {
   b.textContent = cells.length ? 'Clear all' : 'Undo clear';
   b.title = cells.length ? 'Remove every cell from the list' : 'Put the removed cells back';
   $('#clrinv').hidden = !cells.some(c => c.hid);
+  if (NQP.find) NQP.find.render();               // cells already in the list are greyed out in "Find cells"
 }
 // one click empties the list; until a cell is added again the same button puts the removed cells back
 let cleared = null;

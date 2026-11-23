@@ -23,6 +23,7 @@ Made by [Chongyin Yang](https://www.yang-dal.com/) (Dalhousie University). Acces
 | `data.js` | reads the data folder (or the office server for super users) |
 | `parser.js` | Neware export parser (old and new formats) |
 | `auth.js` | sign-in, approval, feedback, usage log |
+| `find.js` | "Find cells": search the lab's cell trackers and the Neware file names by description (Ni65 graphite with VC) |
 | `static/` | [uPlot](https://github.com/leeoniya/uPlot) 1.6.31, MIT licence |
 
 ## Publishing a new version

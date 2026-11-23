@@ -2,6 +2,17 @@
 
 只做记录，还没动手。做完一条就从这里删掉，并写进 versions.js。
 
+## Find cells 智能搜索（2026-11-23，分支 feat/smart-search，未上线）
+
+说明在 Drive：`cellpeek_deploy/20261123_smart_search_upload/`（改动说明 + 后台补丁）。行文本由 Drive `tools/build_tracker_rows.py` 生成。
+
+1. **没测过**：后台的 `trackers` 和 `ask` 两个动作（要先贴补丁、放 API key）；连接真实 CYCLING 文件夹后从搜索结果加电池。
+2. **版本号**没定（线上 0.3.3；大版本应为 0.4.0），`versions.js` 还没加条目。
+3. **定时任务**没加：`build_tracker_rows.py` 要每天在 `build_index.py` 之后跑。
+4. "石墨"的匹配不完全准（只写正极的行、硅混合负极），裸成分代码（640、811）可能碰上别的整数。
+5. 同义词表现在写在 `find.js` 的 `ALIASES` 里；以后可以挪到后台 Google Sheet，让组里自己加。
+6. 想过没做：显示"只差一个条件"的电池；条码范围（`1075651-60`）写在一个格子里的行不展开。
+
 ## XPS Fitting（2026-11-13 上线第一版，以下等数据或决定）
 
 1. **真实数据**：能读 PHI MultiPak 的 `.spe`（VersaProbe 4，样例 `261107_KC0181.102.KC0281S1_1.spe`：全谱 + C1s、Ni2p、Mn2p、Co2p、Custom2 40–82 eV）。只验证了读取和显示，还没有在真实谱上做过拟合。
