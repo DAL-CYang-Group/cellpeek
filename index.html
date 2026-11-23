@@ -344,15 +344,15 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.4.1&b=44"></script>
-<script src="versions.js?v=0.4.1&b=44"></script>
-<script src="data.js?v=0.4.1&b=44"></script>
-<script src="auth.js?v=0.4.1&b=44"></script>
-<script src="find.js?v=0.4.1&b=44"></script>
-<script src="raman.js?v=0.4.1&b=44"></script>
-<script src="xps.js?v=0.4.1&b=44"></script>
-<script src="eis.js?v=0.4.1&b=44"></script>
-<script src="drt.js?v=0.4.1&b=44"></script>
+<script src="config.js?v=0.4.1&b=45"></script>
+<script src="versions.js?v=0.4.1&b=45"></script>
+<script src="data.js?v=0.4.1&b=45"></script>
+<script src="auth.js?v=0.4.1&b=45"></script>
+<script src="find.js?v=0.4.1&b=45"></script>
+<script src="raman.js?v=0.4.1&b=45"></script>
+<script src="xps.js?v=0.4.1&b=45"></script>
+<script src="eis.js?v=0.4.1&b=45"></script>
+<script src="drt.js?v=0.4.1&b=45"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -1163,10 +1163,8 @@ $('#xlsbtn').onclick = async () => {
   if (!xlsPlots().length) return;
   try {
     const blob = xlsBook(), name = `${today()}_cycling_${shownCells().slice(0, 4).map(c => c.bc).join('-')}${shownCells().length > 4 ? '-etc' : ''}.xlsx`;
-    if (window.showSaveFilePicker) {
-      const h = await showSaveFilePicker({suggestedName: name, types: [{description: 'Excel workbook', accept: {'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']}}]});
-      const w = await h.createWritable(); await w.write(blob); await w.close(); status('Saved ' + h.name);
-    } else { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); status('Downloaded ' + name); }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);   // straight to the browser's download folder, like the other tabs
+    status('Downloaded ' + name);
     NQP.log('export', {name: 'xlsx'});
   } catch (err) { if (err.name !== 'AbortError') status('Export failed: ' + err.message); }
 };
