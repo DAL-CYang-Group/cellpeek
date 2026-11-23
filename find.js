@@ -260,6 +260,7 @@ function init() {
   const inp = $('#ask'); if (!inp) return;
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') start(inp.value); else if (e.key === 'Escape') { inp.value = ''; start(''); } });
   inp.addEventListener('input', () => { if (!inp.value.trim()) start(''); });
+  if ($('#askgo')) $('#askgo').onclick = () => { start(inp.value); inp.focus(); };           // for people who do not press Enter
   inp.addEventListener('focus', () => { loadTrackers().catch(() => {}); }, {once: true});
   $('#askterms').addEventListener('click', e => { e.preventDefault();
     if (e.target.id === 'askplus') return editTerm(S.terms.length, e.target);
