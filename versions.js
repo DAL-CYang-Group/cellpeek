@@ -1,6 +1,11 @@
 // Version history, newest first. The first entry is the running version.
 // Rule: the last number (0.1.x) may be bumped for small fixes; changing the first two numbers needs Chongyin's approval.
 window.NQP_VERSIONS = [
+  {v: '0.4.0', date: '2026-11-23', notes: [
+    'Neware Cycling: Find cells. Describe the cells in English or Chinese (Ni65 graphite with VC · LFP 40C 4.3V without FEC) and press Enter: the lab\'s cell trackers and the Neware file names are searched',
+    'The terms that were understood are shown as labels: remove one, click one to change its spellings, put - in front to exclude, or add a term',
+    'Cells are listed by tracker file with the tracker row that names them; click to select, Shift + click for a range, select a whole tracker, then Add selected',
+    'The tracker rows are updated from the cell-tracker library on the office PC and loaded from the backend; only cells with Neware data are listed']},
   {v: '0.3.3', date: '2026-11-20', notes: [
     'Neware Cycling: Combined PNG at the top right of the plots puts the plots that are shown into one figure, stacked on a shared x axis (cycle number or time)',
     'Neware Cycling: a tick box for every cell in the list; an unticked cell is hidden in the plots and stays in the list. Remove unticked deletes the hidden cells',

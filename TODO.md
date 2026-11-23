@@ -7,7 +7,7 @@
 说明在 Drive：`cellpeek_deploy/20261123_smart_search_upload/`（改动说明 + 后台补丁）。行文本由 Drive `tools/build_tracker_rows.py` 生成。
 
 1. **没测过**：后台的 `trackers` 和 `ask` 两个动作（要先贴补丁、放 API key）；连接真实 CYCLING 文件夹后从搜索结果加电池。
-2. **版本号**没定（线上 0.3.3；大版本应为 0.4.0），`versions.js` 还没加条目。
+2. 版本号定为 0.4.0（`versions.js` 已加条目）；分支还没合并、没推送，要先部署后台。
 3. **定时任务**没加：`build_tracker_rows.py` 要每天在 `build_index.py` 之后跑。
 4. "石墨"的匹配不完全准（只写正极的行、硅混合负极），裸成分代码（640、811）可能碰上别的整数。
 5. 同义词表现在写在 `find.js` 的 `ALIASES` 里；以后可以挪到后台 Google Sheet，让组里自己加。
