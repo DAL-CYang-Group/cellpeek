@@ -55,7 +55,8 @@
   #cellinfo td.fn { word-break:break-all; font-weight:600; }
   #cellinfo select { font-size:12px; max-width:100%; }
   #findbar { padding-top:0; }
-  #ask { width:560px; max-width:100%; }
+  #ask { width:520px; max-width:100%; }
+  #asklabel { font-weight:600; color:var(--accent); font-size:13px; white-space:nowrap; }
   #askbox { margin:6px 16px 0; background:var(--card); border:1px solid var(--line); border-radius:8px; }
   #askbox .kh { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--line); font-size:13px; }
   #askbox .kh .sp { margin-left:auto; }
@@ -297,7 +298,8 @@
   <span id="src" hidden></span>
 </div>
 <div class="toolbar" data-pane="neware" id="findbar">
-  <input id="ask" type="text" placeholder="Find cells: Ni65 graphite with VC, or words from the file name (CYY 40C 42V), then Enter" title="Describe the cells, in English or Chinese (Ni65 graphite cells with VC · LFP 40C 4.3V without FEC), or type words from the file name (CYY 40C 261021). The cell trackers of the lab and the file names in all NEWARE folders are searched. The terms that were understood are shown and can be changed.">
+  <label for="ask" id="asklabel" title="Finds cells from a description; searches the cell trackers of the lab and the Neware file names">Smart search</label>
+  <input id="ask" type="text" placeholder="Ni65 graphite with VC, or words from the file name (CYY 40C 42V), then Enter" title="Smart search. Describe the cells, in English or Chinese (Ni65 graphite cells with VC · LFP 40C 4.3V without FEC), or type words from the file name (CYY 40C 261021). The cell trackers of the lab and the file names in all NEWARE folders are searched. The terms that were understood are shown and can be changed.">
   <span class="sp"></span>
   <span id="idx"></span>
 </div>
@@ -583,7 +585,7 @@ async function loadCell(c, file) {
   renderChips(); markDirty();
 }
 NQP.retryCells = () => cells.filter(c => c.err).forEach(c => loadCell(c));   // after the data folder is connected
-NQP.cellsApi = {add: addCells, list: () => cells};                            // find.js: add the cells picked in "Find cells"
+NQP.cellsApi = {add: addCells, list: () => cells};                            // find.js: add the cells picked in Smart search
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 const stem = (f) => String(f || '').replace(/\.txt$/i, '');
 function channelOf(f) {          // Neware file names end with device-unit-channel(-test ID), e.g. ...-13-3-5-799 or ..._20_10_6
@@ -612,7 +614,7 @@ function renderChips() {
   b.textContent = cells.length ? 'Clear all' : 'Undo clear';
   b.title = cells.length ? 'Remove every cell from the list' : 'Put the removed cells back';
   $('#clrinv').hidden = !cells.some(c => c.hid);
-  if (NQP.find) NQP.find.render();               // cells already in the list are greyed out in "Find cells"
+  if (NQP.find) NQP.find.render();               // cells already in the list are greyed out in Smart search
 }
 // one click empties the list; until a cell is added again the same button puts the removed cells back
 let cleared = null;
