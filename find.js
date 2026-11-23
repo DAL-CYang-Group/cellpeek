@@ -89,32 +89,47 @@ function parseRules(q) {
   }
   return out;
 }
-const needsAI = (q, terms) => /[一-鿿]/.test(q) || q.trim().split(/\s+/).length >= 4 || /\b(only|except|other than|but not)\b/i.test(q) ||
-  terms.some(t => t.lit && /^[a-z]{5,}$/.test(t.label));
+// A word of a tracker owner's name (first name, last name) is searched as it is: no AI needed, the answer is there at once.
+const isPerson = t => !!(T.d && t.lit && T.d.people.has(t.label.toLowerCase()));
+const needsAI = (q, terms) => { if (terms.length && terms.every(isPerson)) return false;
+  return /[一-鿿]/.test(q) || q.trim().split(/\s+/).length >= 4 || /\b(only|except|other than|but not)\b/i.test(q) ||
+    terms.some(t => t.lit && !isPerson(t) && /^[a-z]{5,}$/.test(t.label)); };
 
 // ---------- tracker rows ----------
 const T = {p: null, d: null, err: '', t: 0};
 const b64bytes = (b) => { const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
+async function useRec(rec) {                     // {t_file, gz} -> T.d
+  const txt = await new Response(new Blob([rec.gz]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  const j = JSON.parse(txt), rows = j.rows, scope = new Array(rows.length), byCell = new Map(), people = new Set();
+  for (const f of j.files) for (const w of String(f[1] || '').toLowerCase().split(/[^a-z]+/)) if (w.length >= 3) people.add(w);   // words of the tracker owners' names
+  for (let i = 0; i < rows.length; i++) { const r = rows[i], f = j.files[r[0]];
+    scope[i] = r[4] + ' ¦ ' + r[5] + ' ¦ ' + f[0] + ' ¦ ' + r[1] + ' ¦ ' + f[1];
+    for (const bc of r[6]) { let a = byCell.get(bc); if (!a) byCell.set(bc, a = []); a.push(i); } }
+  T.d = {files: j.files, headers: j.headers, rows, scope, byCell, people}; T.t = j.t; T.err = '';
+  return T.d;
+}
+// The copy saved in this browser is used at once; the backend is asked for a newer one in the background (it used to be asked
+// first, which made every first search of a visit wait for the backend).
 function loadTrackers() {
   return T.p || (T.p = (async () => {
     let rec = NQP.idb ? await NQP.idb.get('trk').catch(() => null) : null;       // {t_file, gz}
-    try {
+    const fresh = async () => {
       if (C.APPS_SCRIPT_URL && NQP.call) {
         const j = await NQP.call('trackers', {have: rec ? rec.t_file : ''});
-        if (j.gz) { rec = {t_file: j.t_file, gz: b64bytes(j.gz)}; NQP.idb && NQP.idb.set('trk', rec).catch(() => {}); }
-        else if (j.none) rec = null;
+        if (j.gz) { const nr = {t_file: j.t_file, gz: b64bytes(j.gz)}; NQP.idb && NQP.idb.set('trk', nr).catch(() => {}); return nr; }
+        if (j.none) return null;
       } else if (!C.APPS_SCRIPT_URL) {                                           // no login configured (testing): a file next to the page
-        const r = await fetch('cellpeek_trackers.json.gz'); if (r.ok) rec = {t_file: 'local', gz: new Uint8Array(await r.arrayBuffer())};
+        const r = await fetch('cellpeek_trackers.json.gz'); if (r.ok) return {t_file: 'local', gz: new Uint8Array(await r.arrayBuffer())};
       }
-    } catch (e) { if (!rec) { T.err = e.message; T.p = null; return null; } }    // offline or old backend: keep the saved copy
+      return rec;
+    };
+    if (rec) {
+      try { await useRec(rec); } catch { rec = null; }
+      if (rec) { fresh().then(async nr => { if (nr && nr !== rec) { await useRec(nr); if (S.q) rerun(true); } }).catch(() => {}); return T.d; }
+    }
+    try { rec = await fresh(); } catch (e) { T.err = e.message; T.p = null; return null; }
     if (!rec) { T.err = 'no tracker file on the server'; return null; }
-    const txt = await new Response(new Blob([rec.gz]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
-    const j = JSON.parse(txt), rows = j.rows, scope = new Array(rows.length), byCell = new Map();
-    for (let i = 0; i < rows.length; i++) { const r = rows[i];
-      scope[i] = r[4] + ' ¦ ' + r[5] + ' ¦ ' + j.files[r[0]][0] + ' ¦ ' + r[1];
-      for (const bc of r[6]) { let a = byCell.get(bc); if (!a) byCell.set(bc, a = []); a.push(i); } }
-    T.d = {files: j.files, headers: j.headers, rows, scope, byCell}; T.t = j.t; T.err = '';
-    return T.d;
+    return useRec(rec);
   })());
 }
 
@@ -171,7 +186,7 @@ function hl(text, rx) {                          // escape + mark the matched wo
 const ago = (ms) => { const s = (Date.now() - ms) / 1000; return s < 5400 ? Math.round(s / 60) + ' min ago' : s < 129600 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago'; };
 function render() {
   const box = $('#askbox'); if (!box) return;
-  if (!S.q) { box.hidden = true; return; }
+  if (!S.q || S.closed) { box.hidden = true; return; }
   box.hidden = false;
   $('#askterms').innerHTML = S.terms.map((t, i) => `<span class="trm${t.not ? ' not' : ''}" data-i="${i}" title="${esc((t.not ? 'Excluded: ' : 'Any of: ') + t.syn.join(', '))} — click to change">${t.not ? 'not ' : ''}${esc(t.label)}<a href="#" title="Remove">✕</a></span>`).join('') +
     `<a href="#" id="askplus" title="Add a term">+ term</a>`;
@@ -228,13 +243,15 @@ async function askAI(q, stamp) {
   render();
 }
 function start(q) {
-  q = q.trim(); S.q = q; S.stamp++; S.edited = false; S.ai = ''; S.note = ''; S.checked.clear(); S.last = null;
+  q = q.trim(); S.q = q; S.closed = false; S.stamp++; S.edited = false; S.ai = ''; S.note = ''; S.checked.clear(); S.last = null;
   if (!q) { S.terms = []; return render(); }
   S.terms = parseRules(q);
   const stamp = S.stamp;
-  loadTrackers().then(() => { if (stamp === S.stamp) rerun(true); });
+  // With the trackers loaded, names of people are known and skip the AI; a first download is given 1.5 s before the AI is asked anyway.
+  let asked = false; const ai = () => { if (asked) return; asked = true; if (stamp === S.stamp && needsAI(q, S.terms)) askAI(q, stamp); };
+  if (T.d) ai(); else setTimeout(ai, 1500);
+  loadTrackers().then(() => { if (stamp !== S.stamp) return; rerun(true); ai(); }, ai);
   rerun(true);
-  if (needsAI(q, S.terms)) askAI(q, stamp);
   NQP.log && NQP.log('find');
 }
 function editTerm(i, chip) {                     // click a term: change its spellings in place ("-" in front = exclude)
@@ -267,15 +284,48 @@ function init() {
     const chip = e.target.closest('.trm'); if (!chip) return; const i = +chip.dataset.i;
     if (e.target.tagName === 'A') { S.terms.splice(i, 1); S.edited = true; S.stamp++; if (S.ai === 'asking') S.ai = ''; S.checked.clear(); search(); render(); }
     else editTerm(i, chip); });
-  $('#asklist').addEventListener('click', e => {
+  // Rows: click = tick or untick one; Shift+click = the range from the last click; press and drag over rows = tick them all
+  // (or untick them all, when the drag starts on a ticked row), as in a photo library. The list scrolls when the pointer
+  // is held at its top or bottom edge.
+  const list = $('#asklist'); let drag = null, dragged = false;
+  const paint = () => {                          // selection only, without drawing the list again
+    for (const el of list.querySelectorAll('.row')) { const h = S.hits[+el.dataset.i]; if (h && !el.classList.contains('added')) el.classList.toggle('sel', S.checked.has(h.bc)); }
+    const n = S.checked.size; $('#askadd').textContent = `Add selected${n ? ' (' + n + ')' : ''}`;
+  };
+  const rowAt = (x, y) => { const r = list.getBoundingClientRect(), el = document.elementFromPoint(Math.min(r.right - 30, Math.max(r.left + 4, x)), Math.min(r.bottom - 3, Math.max(r.top + 3, y)));
+    const row = el && el.closest && el.closest('#asklist .row'); return row ? +row.dataset.i : null; };
+  const dragTo = (i) => { if (i == null || i === drag.i1) return; drag.i1 = i;
+    if (i !== drag.i0 && !drag.moved) { drag.moved = true; list.classList.add('dragging'); const s = getSelection(); s && s.removeAllRanges(); }
+    if (!drag.moved) return;
+    S.checked = new Set(drag.base);
+    for (let k = Math.min(i, drag.i0); k <= Math.max(i, drag.i0); k++) { const h = S.hits[k]; if (!drag.ok(h)) continue; drag.on ? S.checked.add(h.bc) : S.checked.delete(h.bc); }
+    paint(); };
+  list.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || e.shiftKey) return; const row = e.target.closest('.row'); if (!row) return;
+    const have = added(), ok = h => h && !have.has(h.bc) && h.hasData, i = +row.dataset.i, h = S.hits[i]; if (!ok(h)) return;
+    drag = {i0: i, i1: i, on: !S.checked.has(h.bc), base: new Set(S.checked), ok, moved: false, x: e.clientX, y: e.clientY, timer: 0};
+    drag.timer = setInterval(() => { if (!drag || !drag.moved) return; const r = list.getBoundingClientRect();   // scroll at the edges
+      const d = drag.y < r.top + 26 ? -1 : drag.y > r.bottom - 26 ? 1 : 0; if (d) { list.scrollTop += d * 22; dragTo(rowAt(drag.x, drag.y)); } }, 40);
+  });
+  window.addEventListener('pointermove', e => { if (!drag) return; drag.x = e.clientX; drag.y = e.clientY; dragTo(rowAt(e.clientX, e.clientY)); });
+  const dragEnd = () => { if (!drag) return; clearInterval(drag.timer); dragged = drag.moved; if (drag.moved) { S.last = drag.i1; list.classList.remove('dragging'); render(); }
+    drag = null; setTimeout(() => { dragged = false; }, 0); };
+  window.addEventListener('pointerup', dragEnd); window.addEventListener('pointercancel', dragEnd);
+  list.addEventListener('click', e => {
+    if (dragged) return;                         // the click that ends a drag
     const have = added(), ok = h => h && !have.has(h.bc) && h.hasData;
     const g = e.target.closest('.grp');
     if (g) { e.preventDefault(); if (e.target.tagName !== 'A') return;
       for (const h of S.groups[+g.dataset.g].hits) if (ok(h)) S.checked.add(h.bc); return render(); }
     const row = e.target.closest('.row'); if (!row) return; const i = +row.dataset.i, h = S.hits[i]; if (!ok(h)) return;
-    if (e.shiftKey && S.last != null) { for (let k = Math.min(i, S.last); k <= Math.max(i, S.last); k++) if (ok(S.hits[k])) S.checked.add(S.hits[k].bc); }
+    if (e.shiftKey && S.last != null) { for (let k = Math.min(i, S.last); k <= Math.max(i, S.last); k++) if (ok(S.hits[k])) S.checked.add(S.hits[k].bc); const s = getSelection(); s && s.removeAllRanges(); }
     else S.checked.has(h.bc) ? S.checked.delete(h.bc) : S.checked.add(h.bc);
     S.last = i; render(); });
+  // a click anywhere outside the results closes them (the question stays in the box; click the box or press Enter to see them again)
+  document.addEventListener('pointerdown', e => { const box = $('#askbox');
+    if (!S.q || S.closed || box.hidden || e.target.closest('#askbox, #ask, #askgo, #asklabel, dialog')) return;
+    S.closed = true; render(); });
+  inp.addEventListener('pointerdown', () => { if (S.q && S.closed && inp.value.trim() === S.q) { S.closed = false; render(); } });
   $('#askselall').onclick = () => { const have = added(); S.hits.slice(0, MAX_SHOW).forEach(h => { if (!have.has(h.bc) && h.hasData) S.checked.add(h.bc); }); render(); };
   $('#asknone').onclick = () => { S.checked.clear(); render(); };
   $('#askclose').onclick = () => { inp.value = ''; start(''); };
