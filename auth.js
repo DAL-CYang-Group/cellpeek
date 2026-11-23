@@ -84,8 +84,13 @@ function showBlocked(s) {
 }
 async function check() {
   clearTimeout(pollT);
-  try { await ipP; route(await call('session')); } catch (e) { gate(`${TITLE}<p class="gerr">Cannot reach the login server: ${esc(e.message)}</p><button onclick="location.reload()">Retry</button>`); }
+  // the login server can take 15 s to wake up; without an answer after SIGN_WAIT the card offers Retry instead of waiting for ever
+  const slow = setTimeout(() => { const p = $('#gatecard .gmuted'); if (p && /Signing in/.test(p.textContent)) p.textContent = 'Signing in… the login server is waking up, this can take 20 seconds.'; }, 6000);
+  let tm; const late = new Promise((_, rej) => { tm = setTimeout(() => rej(new Error('no answer after ' + SIGN_WAIT / 1000 + ' s')), SIGN_WAIT); });
+  try { await ipP; route(await Promise.race([call('session'), late])); } catch (e) { gate(`${TITLE}<p class="gerr">Cannot reach the login server: ${esc(e.message)}</p><button onclick="location.reload()">Retry</button>`); }
+  finally { clearTimeout(slow); clearTimeout(tm); }
 }
+const SIGN_WAIT = 45000;
 function route(s) {
   if (s.status === 'approved') return approved(s);
   if (s.status === 'unverified' || s.status === 'pending') return showWaiting(s);
@@ -139,6 +144,8 @@ function srcLabel() {
     el.innerHTML = `Data: remote · ${esc(S.base.replace(/^https?:\/\//, ''))} <a href="#" id="srcchg">change</a>`;
   } else if (NQP.folder.name()) {
     el.innerHTML = `Data: ${esc(NQP.folder.name())} <a href="#" id="srcchg">change</a>`;
+  } else if (FOLDER_STATE === 'connecting') {          // remembered folder not answering yet (slow or unreachable drive)
+    el.innerHTML = `Data: <span title="Waiting for the data drive to answer">connecting…</span> <a href="#" id="srcchg">change</a>`;
   } else if (FOLDER_STATE === 'prompt') {              // folder remembered, browser wants permission again
     el.innerHTML = `Data: <a href="#" id="srcallow" class="srcneed" title="Allow this page to read ${esc(SAVED_NAME)} again">allow ${esc(SAVED_NAME)}</a> · <a href="#" id="srcchg">change</a>`;
   } else {                                             // nothing connected yet
@@ -156,16 +163,37 @@ async function dataStep() {
   if (!NQP.folder.supported()) return gate(`${TITLE}<p>Please open this page in <b>Google Chrome</b> or <b>Microsoft Edge</b>.
     Other browsers cannot read a folder on your computer.</p>${USER && USER.super ? '<button id="g_rm">Use remote server instead</button>' : ''}`)
     , USER && USER.super && ($('#g_rm').onclick = chooseSource);
-  // the page opens right away; the data folder is connected from "Data: ..." in the header
-  FOLDER_STATE = await NQP.folder.state();
-  if (FOLDER_STATE === 'granted') await NQP.folder.useSaved();
-  else if (FOLDER_STATE === 'prompt') SAVED_NAME = (await NQP.folder.saved()).name;
-  NQP.source.mode = 'local'; srcLabel(); openPage();
-  if (FOLDER_STATE !== 'granted') status(FOLDER_STATE === 'prompt'
-    ? `Click "allow ${SAVED_NAME}" next to Data (top right) to read the data folder again.`
-    : 'To start, click "connect CYCLING folder" next to Data (top right).');
-  DATA_STEP = true; folderPrompt();
+  // The page opens right away; the data folder is connected from "Data: ..." in the header.
+  // The remembered folder is given FOLDER_WAIT to connect; a drive that answers slowly (or not at all) no longer
+  // keeps the sign-in card on screen: the page opens and the folder joins when it is ready.
+  NQP.source.mode = 'local';
+  let late = false;
+  const conn = (async () => {
+    const st = await NQP.folder.state();
+    if (st === 'granted') await NQP.folder.useSaved();
+    else if (st === 'prompt') SAVED_NAME = (await NQP.folder.saved()).name;
+    return st;
+  })();
+  const shown = st => {
+    FOLDER_STATE = st; srcLabel();
+    if (st === 'granted') { if (late) folderReady(); }
+    else status(st === 'prompt'
+      ? `Click "allow ${SAVED_NAME}" next to Data (top right) to read the data folder again.`
+      : 'To start, click "connect CYCLING folder" next to Data (top right).');
+    DATA_STEP = true; folderPrompt();
+  };
+  const failed = e => { FOLDER_STATE = 'none'; srcLabel(); DATA_STEP = true;
+    status('Could not open the remembered data folder (' + (e && e.message || e) + '). Click "connect CYCLING folder" next to Data (top right).'); };
+  let st;
+  try { st = await Promise.race([conn, new Promise(r => setTimeout(() => r('wait'), FOLDER_WAIT))]); }
+  catch (e) { openPage(); return failed(e); }
+  if (st !== 'wait') { srcLabel(); openPage(); return shown(st); }
+  late = true; FOLDER_STATE = 'connecting'; srcLabel(); openPage();
+  const msg = 'Still connecting the data folder (is the data drive reachable?). The other tabs can be used meanwhile.';
+  status(msg); const again = setTimeout(() => { if (FOLDER_STATE === 'connecting') status(msg); }, 1500);   // the first redraw writes its own line
+  conn.then(shown, failed).finally(() => clearTimeout(again));
 }
+const FOLDER_WAIT = 4000;
 // Neware Cycling opened without a readable data folder: offer to connect it (once per page load; "Not now" closes it)
 let DATA_STEP = false, FOLD_ASKED = false;
 function folderPrompt() {

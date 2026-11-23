@@ -56,7 +56,8 @@ const local = {
   },
   key(name) { return 'ls:' + (this.root ? this.root.name : '') + '/' + name; },
   isRoot(name) { return this.roots.some(r => r.name === name); },
-  async use(h) {
+  use(h) { const p = this.using = this.use1(h).finally(() => { if (this.using === p) this.using = null; }); return p; },
+  async use1(h) {
     clearTimeout(this.timer);
     this.root = h; this.subs = []; this.roots = await this.resolveRoots(h);
     this.handles.clear(); this.lists.clear(); this.idx.clear(); this.picks.clear();
@@ -220,6 +221,7 @@ const local = {
     });
   },
   async find(bc, rescan = true) {
+    if (this.using) await this.using.catch(() => {});   // the saved folder is still being connected (auth.js opens the page first)
     if (!this.root) throw new Error('no data folder: click "connect CYCLING folder" (top right)');
     if (this.ready) await this.ready;            // first visit: wait for the office-PC index instead of reading folders
     let hits = this.lookup(bc), out = hits.length ? await this.stat(hits) : [];
