@@ -128,7 +128,7 @@
   .expbtn { margin-left:auto; font-size:11.5px; padding:2px 9px; border-radius:10px; color:var(--accent); border-color:var(--accent); background:#fff; }
   .expbtn:hover { background:var(--accent); color:#fff; }
   .expbtn:disabled, .expbtn:disabled:hover { color:var(--muted); border-color:var(--line); background:#fff; cursor:not-allowed; }
-  #modstop { display:flex; align-items:center; gap:10px; min-height:22px; } #stackwhy { margin-left:auto; font-size:11.5px; color:var(--muted); } #stackwhy:empty + .expbtn { margin-left:auto; } #stackwhy + .expbtn { margin-left:0; }
+  #modstop { display:flex; align-items:center; gap:10px; min-height:22px; } #stackwhy { margin-left:auto; font-size:11.5px; color:var(--muted); } #stackwhy:empty + .expbtn { margin-left:auto; } #stackwhy + .expbtn { margin-left:0; } #modstop .expbtn + .expbtn { margin-left:0; }
   .dq-cell .hrow { display:flex; align-items:center; gap:8px; }
   .dq-cell .hrow .head { flex:1; min-width:0; }
   #exp { border:1px solid var(--line); border-radius:10px; padding:0; width:min(1100px, 96vw); box-shadow:0 10px 40px rgba(0,0,0,.25); }
@@ -279,7 +279,7 @@
 <body>
 <div id="top">
 <header>
-  <h1>CellPeek - DAL <span style="font-weight:400;color:#6b7480;font-size:12px"><a href="#" id="ver" title="Version history">beta 0.4.0</a> · by <a href="https://www.yang-dal.com/" target="_blank" rel="noopener">Chongyin Yang</a></span></h1>
+  <h1>CellPeek - DAL <span style="font-weight:400;color:#6b7480;font-size:12px"><a href="#" id="ver" title="Version history">beta 0.4.1</a> · by <a href="https://www.yang-dal.com/" target="_blank" rel="noopener">Chongyin Yang</a></span></h1>
   <nav id="tabs" role="tablist">
     <button type="button" role="tab" data-tab="neware">Neware Cycling</button>
     <button type="button" role="tab" data-tab="raman">Raman Fitting</button>
@@ -324,7 +324,7 @@
   <div id="asklist" title="Click a cell to select it, click again to let it go; Shift + click selects a range. Hover over a row for the column names."></div>
 </div>
 <div id="work">
-<main id="mods"><div id="modstop"><span id="stackwhy"></span><button type="button" id="stackpng" class="expbtn" disabled>Combined PNG</button></div></main>
+<main id="mods"><div id="modstop"><span id="stackwhy"></span><button type="button" id="xlsbtn" class="expbtn" disabled>Export Excel</button><button type="button" id="stackpng" class="expbtn" disabled>Combined PNG</button></div></main>
 <aside id="side">
   <h4>Plots</h4>
   <div id="modebar"></div>
@@ -344,15 +344,15 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.4.0&b=43"></script>
-<script src="versions.js?v=0.4.0&b=43"></script>
-<script src="data.js?v=0.4.0&b=43"></script>
-<script src="auth.js?v=0.4.0&b=43"></script>
-<script src="find.js?v=0.4.0&b=43"></script>
-<script src="raman.js?v=0.4.0&b=43"></script>
-<script src="xps.js?v=0.4.0&b=43"></script>
-<script src="eis.js?v=0.4.0&b=43"></script>
-<script src="drt.js?v=0.4.0&b=43"></script>
+<script src="config.js?v=0.4.1&b=44"></script>
+<script src="versions.js?v=0.4.1&b=44"></script>
+<script src="data.js?v=0.4.1&b=44"></script>
+<script src="auth.js?v=0.4.1&b=44"></script>
+<script src="find.js?v=0.4.1&b=44"></script>
+<script src="raman.js?v=0.4.1&b=44"></script>
+<script src="xps.js?v=0.4.1&b=44"></script>
+<script src="eis.js?v=0.4.1&b=44"></script>
+<script src="drt.js?v=0.4.1&b=44"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -970,7 +970,7 @@ async function cyclePlots(m, s, el, K) {     // one plot for each cell, one colo
       const col = vcolor(ks.length > 1 ? i / (ks.length - 1) : 0), e = vq[k]; if (!e) return;
       const it = {key: 'c' + k, label: 'Cycle ' + k, color: col, n: 0}; items.push(it);
       for (const [st, r] of K.curves(c, e)) { if (!r) continue;
-        arrs.push(r); it.n++; ser.push({label: `cyc ${k} ${st}`, stroke: col, width: 1.3, spanGaps: true, points: {show: false}}); }
+        arrs.push(r); it.n++; (it.full = it.full || []).push([st, r]); ser.push({label: `cyc ${k} ${st}`, stroke: col, width: 1.3, spanGaps: true, points: {show: false}}); }
     });
     if (K.thin) arrs = thinCurves(arrs, K.thin);
     { let j = 0; for (const it of items) { it.data = arrs.slice(j, j + it.n); j += it.n; } }
@@ -984,7 +984,7 @@ async function cyclePlots(m, s, el, K) {     // one plot for each cell, one colo
       axes: [AX('x', 34), AX('y', 72)],
       series: [{}].concat(ser)}, uPlot.join(arrs), pp);
     axisOverlay(u, m, xlab, K.ylab);
-    u.exp = {kind: 'line', name: K.name + '_' + c.bc, xlab, ylab: K.ylab, items: items.filter(i => i.data.length)};
+    u.exp = {kind: 'line', name: K.name + '_' + c.bc, xlab, ylab: K.ylab, items: items.filter(i => i.data.length), bc: c.bc, file: c.file};
     $('.expbtn', box).onclick = () => openExport(u);
     plots.push(u);
   }
@@ -1127,7 +1127,49 @@ function stackState() {
   return {got};
 }
 function syncStack() { const s = stackState(), b = $('#stackpng'); b.disabled = !s.got; $('#stackwhy').textContent = s.got ? '' : s.why;
-  b.title = s.got ? `One figure: the ${s.got.length} plots shown, stacked on a shared x axis` : s.why || 'Add a cell first'; }
+  b.title = s.got ? `One figure: the ${s.got.length} plots shown, stacked on a shared x axis` : s.why || 'Add a cell first';
+  const n = xlsPlots().length, x = $('#xlsbtn'); x.disabled = !n; x.title = n ? 'One Excel file: the data of the plots shown, one sheet for each plot' : 'Add a cell first'; }
+// Export Excel: the data of every plot that is shown, as plotted (unit, normalization, ΔV mode, chosen cycles; unticked cells left out),
+// one sheet for each plot. Every column is headed with what it holds and its unit. The axis ranges (zoom) do not cut the data.
+const XLS_SHEET = {qcyc: 'Capacity vs cycle', qtime: 'Capacity vs time', ncyc: 'Norm. capacity vs cycle', ntime: 'Norm. capacity vs time',
+  cecyc: 'CE vs cycle', cetime: 'CE vs time', dvcyc: 'dV vs cycle', dvtime: 'dV vs time', vq: 'V-Q', dqdv: 'dQdV'};
+const xlsPlots = () => M.filter(m => ON[m.id]).flatMap(m => ((rendered[m.id] || {}).plots || []).filter(u => u.exp && u.exp.items.length).map(u => ({m, u})));
+function xlsBook() {
+  const n7 = v => v == null || !isFinite(v) ? '' : +(+v).toPrecision(7), sheets = [], list = [];
+  for (const {m, u} of xlsPlots()) {
+    const e = u.exp, s = settings(m), rows = []; let name = XLS_SHEET[m.id], what = m.title;
+    if (!m.per && m.x === 'cyc') {                // cells share the cycle number: one x column, one column for each cell
+      const by = e.items.map(it => new Map(it.data[0][0].map((x, i) => [x, it.data[0][1][i]])));
+      const ks = [...new Set(e.items.flatMap(it => it.data[0][0]))].sort((a, b) => a - b);
+      rows.push(['Cell'].concat(e.items.map(it => it.label)), [e.xlab].concat(e.items.map(() => e.ylab)));
+      for (const k of ks) rows.push([k].concat(by.map(b => n7(b.get(k)))));
+    } else {                                      // every curve has its own x: two columns for each
+      const cols = m.per ? e.items.flatMap(it => (it.full || []).map(([st, r]) => [`${it.label} ${st === 'chg' ? 'charge' : 'discharge'}`, r]))
+                         : e.items.map(it => [it.label, it.data[0]]);
+      rows.push(cols.flatMap(c => { const h = m.per ? c[0] : 'Cell ' + c[0]; return [h, h]; }), cols.flatMap(() => [e.xlab, e.ylab]));
+      const len = Math.max(...cols.map(c => c[1][0].length));
+      for (let i = 0; i < len; i++) rows.push(cols.flatMap(c => i < c[1][0].length ? [n7(c[1][0][i]), n7(c[1][1][i])] : ['', '']));
+      if (m.per) { name += ' ' + e.bc; what += `, cell ${e.bc} (${e.file})`; }
+    }
+    const set = m.y === 'n' ? `normalized to cycle ${s.ref}` : m.y === 'dv' && s.dvmode !== 'abs' ? `${s.dvmode === 'diff' ? 'ΔV − ΔV of' : 'ΔV / ΔV of'} cycle ${s.dvref}`
+              : m.id === 'dqdv' ? 'smoothing: ' + (s.smooth === 'raw' ? 'none' : s.smooth.replace('_', ' mV grid, ') + '-point average') : '';
+    sheets.push({name: name.slice(0, 31), rows, widths: rows[1].map(() => 18)}); list.push([name.slice(0, 31), what, e.xlab, e.ylab, set]);
+  }
+  const info = [['CellPeek ' + (window.NQP_CONFIG || {}).APP_VERSION, 'exported ' + new Date().toLocaleString('en-CA', {hour12: false})], [],
+    ['Sheet', 'Plot', 'x', 'y', 'Settings'], ...list, [], ['Cell', 'File'], ...shownCells().map(c => [c.bc, c.file || ''])];
+  return NQP.xlsx([{name: 'Info', rows: info, widths: [24, 52, 20, 26, 34]}, ...sheets]);
+}
+$('#xlsbtn').onclick = async () => {
+  if (!xlsPlots().length) return;
+  try {
+    const blob = xlsBook(), name = `${today()}_cycling_${shownCells().slice(0, 4).map(c => c.bc).join('-')}${shownCells().length > 4 ? '-etc' : ''}.xlsx`;
+    if (window.showSaveFilePicker) {
+      const h = await showSaveFilePicker({suggestedName: name, types: [{description: 'Excel workbook', accept: {'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']}}]});
+      const w = await h.createWritable(); await w.write(blob); await w.close(); status('Saved ' + h.name);
+    } else { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); status('Downloaded ' + name); }
+    NQP.log('export', {name: 'xlsx'});
+  } catch (err) { if (err.name !== 'AbortError') status('Export failed: ' + err.message); }
+};
 $('#stackpng').onclick = () => { const s = stackState(); if (!s.got) return;
   const us = s.got.map(o => o.u), lo = Math.min(...us.map(u => u.scales.x.min)), hi = Math.max(...us.map(u => u.scales.x.max)), seen = new Set(), items = [];
   for (const u of us) for (const it of u.exp.items) if (!seen.has(it.key)) { seen.add(it.key); items.push(it); }     // each cell once in the legend

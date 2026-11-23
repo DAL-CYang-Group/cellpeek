@@ -389,6 +389,7 @@ function xlsx(sheets) {                           // sheets: [{name, rows, width
     ['xl/_rels/workbook.xml.rels', `${X}<Relationships xmlns="${P}package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${R}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}</Relationships>`],
     ...sheets.map((s, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s.rows, s.widths)])]);
 }
+NQP.xlsx = xlsx;                                  // index.html: Export Excel of the cycling plots
 function exportBook() {
   const k = scale(), u = unit().replace('Ω', 'ohm').replace('²', '2'), n6 = v => +(+v).toPrecision(6);
   const res = [['spectrum', `R_HFI (${u})`, `R_ct (${u})`, `semicircle width = R_contact + R_ct (${u})`, `R_contact (${u})`, 'semicircles', 'diffusion tail', 'fit error (%), points with -Z\'\' >= 0', 'fit error (%), all points', 'inductive points']];
