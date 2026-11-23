@@ -1,25 +1,16 @@
 // Version history, newest first. The first entry is the running version.
-// Rule: the last number (0.1.x) may be bumped for small fixes; changing the first two numbers needs Chongyin's approval.
+// Rule: ask Chongyin before changing the version number. Notes: one short line per change, no details.
 window.NQP_VERSIONS = [
-  {v: '0.4.0', date: '2026-11-23', notes: [
-    'Neware Cycling: Find cells. Describe the cells in English or Chinese (Ni65 graphite with VC · LFP 40C 4.3V without FEC) and press Enter: the lab\'s cell trackers and the Neware file names are searched',
-    'The terms that were understood are shown as labels: remove one, click one to change its spellings, put - in front to exclude, or add a term',
-    'Cells are listed by tracker file with the tracker row that names them; click to select, Shift + click for a range, select a whole tracker, then Add selected',
-    'The tracker rows are updated from the cell-tracker library on the office PC and loaded from the backend; only cells with Neware data are listed']},
-  {v: '0.3.3', date: '2026-11-20', notes: [
-    'Neware Cycling: Combined PNG at the top right of the plots puts the plots that are shown into one figure, stacked on a shared x axis (cycle number or time)',
-    'Neware Cycling: a tick box for every cell in the list; an unticked cell is hidden in the plots and stays in the list. Remove unticked deletes the hidden cells',
-    'Neware Cycling: in the file-name search a click selects a file (highlighted), Shift + click selects a range',
-    'Neware Cycling: dQ/dV and charge–discharge curves also show a cycle that is still running',
-    'EIS ECM: export as an Excel file with one sheet for each spectrum (measured points and fit), R_contact in the results table, leave out inductive points on by default, how to cite the source code']},
-  {v: '0.3.2', date: '2026-11-15', notes: ['Neware Cycling: new plot Charge–discharge curves (voltage against capacity for the chosen cycles, one plot for each cell, mAh or mAh/g, PNG export)', 'Neware Cycling: Clear all above the cell list empties it in one click; the same button puts the cells back until a new cell is added']},
-  {v: '0.3.1', date: '2026-11-13', notes: ['New tab NMC XPS: drop PHI MultiPak .spe files and the chosen mode is fitted straight away. First mode, NMC 3p region (45–80 eV): charge correction to C 1s at 284.8 eV, one Shirley background for each group of peaks, GL(20) peaks for Mn 3p, Li 1s, Co 3p, Ni 3p and their satellites with the area and splitting constraints of the group procedure, surface Ni / Mn / Co fractions from the RSFs, export', 'Fitting plots (Raman, XPS): no dot on the peaks; a dashed line leads from each peak to its name at the top (the position when the peak has no name)', 'New tab EIS ECM: equivalent-circuit fit of a series of impedance spectra (R_HFI, R_ct), one model for the whole set (3 semicircles by default; inductive high-frequency points fitted with an inductor or left out, as you choose), semicircle width (contact + R_ct) next to R_ct, results table, CSV export', 'New tab EIS DRT: distribution of relaxation times (DRTtools method), peak ranges for R_contact and R_ct, comparison with the ECM fit', 'Neware Cycling: plots redraw automatically (no Plot button), plots on the left and cells on the right, crosshair with live coordinates, simpler axis titles, PNG export uses the axis ranges on screen, oldest BTS export format and the 2022 BTS export format are read', 'Neware Cycling: asks to connect the data folder when it is not connected yet', 'Every tab keeps the last state of your work in this browser and shows it again when the page is opened (as Raman Fitting already did)', 'Raman Fitting: drag the grip at the right edge of a plot to change its width (double-click: full width); signal-to-noise ratio of every peak in the table and in the exported files', 'Raman Fitting: background removal in two steps, automatic zero, editable spectrum names, draggable curve labels, PNG export matches the screen']},
-  {v: '0.2.3', date: '2026-11-12', notes: ['File index built twice a day on the office PC and loaded from the backend: no waiting for folder reads, also on first use', 'Without it: all NEWARE folders are listed once (several at a time) and kept in this browser; loading a cell opens its file directly without reading any folder', 'dQ/dV reuses the file already found', 'The index updates itself quietly in the background (main folders every 30 min, other folders daily, or when a new barcode is not found); "rebuild" at the top right']},
-  {v: '0.2.2', date: '2026-11-12', notes: ['Faster file lookup: the folder file list is read once in the background when the page opens and reused; a new barcode is found the moment its name is read, and all barcodes added together share one read', 'Barcode ranges: 1172140-1172160 (or 1172140-160), spaces allowed', 'Search file names by keywords: all matching files in a scrollable list with check boxes, add the selected ones', 'Cells show the full file name; click it for folder, channel, last update time, cycles and other files with the same barcode']},
-  {v: '0.2.1', date: '2026-11-12', notes: ['Tabs: Neware Cycling and Raman Fitting', 'Raman Fitting: drop .txt spectra, despike, arPLS background + zero, shift by picking a point, live multi-peak fitting with NMC rule presets, area ratios, undo / redo, auto-save, export', 'New users go straight to the page; connect the CYCLING folder from "Data:" at the top right']},
-  {v: '0.1.2', date: '2026-11-08', notes: ['ΔV plots: absolute, minus a reference cycle, or divided by a reference cycle', 'Normalized plots: last-cycle % shown at the right']},
-  {v: '0.1.1', date: '2026-11-08', notes: ['Web version: sign-in with approval', 'Reads the data folder in the browser (read-only)', 'Feedback']},
-  {v: '0.1.0', date: '2026-11-08', notes: ['First version: 9 plot types, multi-barcode input', 'Editable axis limits, PNG export']},
+  {v: '0.4.0', date: '2026-11-23', notes: ['Find cells: search by description (Ni65 graphite with VC) in the cell trackers and file names']},
+  {v: '0.3.3', date: '2026-11-20', notes: ['Combined PNG', 'Tick boxes to hide cells', 'EIS ECM: Excel export']},
+  {v: '0.3.2', date: '2026-11-15', notes: ['Charge–discharge curves', 'Clear all']},
+  {v: '0.3.1', date: '2026-11-13', notes: ['New tabs: NMC XPS, EIS ECM, EIS DRT', 'Neware Cycling: automatic redraw, new layout, crosshair', 'Every tab remembers its last state', 'Raman Fitting: two-step background, resizable plots']},
+  {v: '0.2.3', date: '2026-11-12', notes: ['File index built on the office PC: cells load without reading folders']},
+  {v: '0.2.2', date: '2026-11-12', notes: ['Faster file lookup', 'Barcode ranges', 'File-name search', 'Cell details']},
+  {v: '0.2.1', date: '2026-11-12', notes: ['Tabs: Neware Cycling and Raman Fitting']},
+  {v: '0.1.2', date: '2026-11-08', notes: ['ΔV plot modes', 'Last-cycle % on normalized plots']},
+  {v: '0.1.1', date: '2026-11-08', notes: ['Web version with sign-in', 'Feedback']},
+  {v: '0.1.0', date: '2026-11-08', notes: ['First version']},
 ];
 window.NQP_CONFIG = window.NQP_CONFIG || {};
 window.NQP_CONFIG.APP_VERSION = window.NQP_VERSIONS[0].v;

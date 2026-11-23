@@ -28,6 +28,6 @@ Made by [Chongyin Yang](https://www.yang-dal.com/) (Dalhousie University). Acces
 
 ## Publishing a new version
 
-1. Change the files; add a new entry at the top of `versions.js` (bump the last number for small fixes; the first two numbers only with Chongyin's approval).
+1. Change the files; add a new entry at the top of `versions.js` (ask Chongyin before changing the version number; one short line per change, no details).
 2. Commit and push (GitHub Pages updates in about a minute).
 3. Set `LATEST_VERSION` in the Google Sheet `config` tab to the same number; open pages then show "new version available".
