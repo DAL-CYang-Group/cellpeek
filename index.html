@@ -344,15 +344,15 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.4.1&b=46"></script>
-<script src="versions.js?v=0.4.1&b=46"></script>
-<script src="data.js?v=0.4.1&b=46"></script>
-<script src="auth.js?v=0.4.1&b=46"></script>
-<script src="find.js?v=0.4.1&b=46"></script>
-<script src="raman.js?v=0.4.1&b=46"></script>
-<script src="xps.js?v=0.4.1&b=46"></script>
-<script src="eis.js?v=0.4.1&b=46"></script>
-<script src="drt.js?v=0.4.1&b=46"></script>
+<script src="config.js?v=0.4.1&b=47"></script>
+<script src="versions.js?v=0.4.1&b=47"></script>
+<script src="data.js?v=0.4.1&b=47"></script>
+<script src="auth.js?v=0.4.1&b=47"></script>
+<script src="find.js?v=0.4.1&b=47"></script>
+<script src="raman.js?v=0.4.1&b=47"></script>
+<script src="xps.js?v=0.4.1&b=47"></script>
+<script src="eis.js?v=0.4.1&b=47"></script>
+<script src="drt.js?v=0.4.1&b=47"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -391,6 +391,7 @@
       <h4>Legend (colour · text)</h4><div class="legrows" id="explist"></div>
       <label><input type="checkbox" id="expfill"> Filled markers</label>
       <label><input type="checkbox" id="explegon" checked> Show legend</label>
+      <label id="exppctrow"><input type="checkbox" id="exppct" checked> Retention (%) of the last cycle at the right</label>
     </div>
   </div>
   <div class="ef">File name <input type="text" id="expname"><button type="button" class="primary" id="expsave">Save as…</button></div>
@@ -1046,12 +1047,12 @@ function drawFig(cv, T, st, scale) {
   const P = T.panels.map(p => { const Y = p.Y, e = p.e, items = withSt(e.items), yt = [], ends = [];
     for (let v = Math.ceil(Y.lo / Y.st - 1e-9) * Y.st; v <= Y.hi + Y.st * 1e-6; v += Y.st) yt.push(v);
     const yfmt = v => (+v.toFixed(dec(Y.st))).toFixed(dec(Y.st)).replace(/^-0(\.0+)?$/, '0$1').replace(/^-/, '−');
-    if (e.endPct) for (const it of items) { const d = it.data[0]; if (!d || !d[0].length) continue; const k = d[0].length - 1; ends.push({v: d[1][k], t: pctText(d[1][k]), c: it.color}); }
+    if (e.endPct && st.pct) for (const it of items) { const d = it.data[0]; if (!d || !d[0].length) continue; const k = d[0].length - 1; ends.push({v: d[1][k], t: pctText(d[1][k]), c: it.color}); }
     return {e, Y, items, yt, yfmt, ends, tickW: Math.max(0, ...yt.map(v => g.measureText(yfmt(v)).width))}; });
   const leg = withSt(T.items), tickW = Math.max(...P.map(p => p.tickW)), padL = 6 + 20 + 8 + tickW + 6;   // title, gap, labels, gap
   const legW = st.legend ? 30 + Math.max(40, ...leg.map(i => g.measureText(i.label).width)) + 14 : 18;
   const labW = Math.max(0, ...P.map(p => p.ends.length ? 10 + Math.max(...p.ends.map(l => g.measureText(l.t).width)) : 0));
-  const W = padL + bw + 14 + labW + legW, H = padT + n * bh + (n - 1) * gap + padB;
+  const W = padL + bw + 10 + labW + legW, H = padT + n * bh + (n - 1) * gap + padB;
   cv.width = Math.round(W * scale); cv.height = Math.round(H * scale);
   g.setTransform(scale, 0, 0, scale, 0, 0); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
   const px = v => padL + (v - X.lo) / (X.hi - X.lo) * bw;
@@ -1094,13 +1095,13 @@ function drawFig(cv, T, st, scale) {
   // legend, right of the top box
   if (st.legend) {
     g.font = `bold 13px ${EXPF}`; g.textAlign = 'left'; g.textBaseline = 'middle';
-    leg.forEach((it, i) => { const x = padL + bw + 18 + labW, y = padT + 10 + i * 21;
+    leg.forEach((it, i) => { const x = padL + bw + 10 + labW, y = padT + 10 + i * 21;
       if (T.kind === 'line') { g.strokeStyle = it.color; g.lineWidth = 2.2; g.beginPath(); g.moveTo(x, y); g.lineTo(x + 18, y); g.stroke(); }
       else { g.lineWidth = 1.5; g.strokeStyle = it.color; g.fillStyle = st.fill ? it.color : '#fff'; g.beginPath(); g.arc(x + 9, y, 4.3, 0, 2 * Math.PI); g.fill(); g.stroke(); }
       g.fillStyle = '#000'; g.fillText(it.label, x + 26, y); });
   }
 }
-let EXPT = null; const EXPST = {col: {}, lab: {}, fill: false, legend: true};
+let EXPT = null; const EXPST = {col: {}, lab: {}, fill: false, legend: true, pct: true};
 function today() { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`; }
 function expRedraw() { if (EXPT) drawFig($('#expcv'), EXPT, EXPST, 2); }
 function openExport(u) { if (!u || !u.exp || !u.exp.items.length) { status('Nothing to export'); return; } openFig(figOf(u)); }
@@ -1111,7 +1112,8 @@ function openFig(T) {
   $('#explist').innerHTML = T.items.map(i => `<input type="color" data-key="${i.key}" value="${i.color}"><input type="text" data-key="${i.key}" value="${i.label}">`).join('');
   $('#explist').querySelectorAll('input').forEach(inp => inp.oninput = () => {
     (inp.type === 'color' ? EXPST.col : EXPST.lab)[inp.dataset.key] = inp.value; expRedraw(); });
-  $('#expfill').checked = EXPST.fill; $('#explegon').checked = EXPST.legend;
+  $('#expfill').checked = EXPST.fill; $('#explegon').checked = EXPST.legend; $('#exppct').checked = EXPST.pct;
+  $('#exppctrow').hidden = !T.panels.some(p => p.e.endPct);                         // only for plots of normalized capacity
   $('#expname').value = `${today()}_${T.name}_${T.kind === 'line' ? '' : T.items.map(i => i.key).join('-')}`.replace(/_$/, '') + '.png';
   $('#exp').showModal(); expRedraw();
 }
@@ -1175,6 +1177,7 @@ $('#stackpng').onclick = () => { const s = stackState(); if (!s.got) return;
     name: s.got.map(o => o.m.id).join('-'), title: s.got.length + ' plots on one x axis'}); };
 $('#expfill').onchange = e => { EXPST.fill = e.target.checked; expRedraw(); };
 $('#explegon').onchange = e => { EXPST.legend = e.target.checked; expRedraw(); };
+$('#exppct').onchange = e => { EXPST.pct = e.target.checked; expRedraw(); };
 $('#expx').onclick = () => $('#exp').close();
 $('#expsave').onclick = async () => {
   const cv = document.createElement('canvas'); drawFig(cv, EXPT, EXPST, EXPSCALE);
