@@ -20,6 +20,11 @@ async function call(action, payload = {}) {
   const j = await r.json(); if (j.error) throw new Error(j.error); return j;
 }
 NQP.call = call;                                   // data.js: office-PC file index ('index' action)
+NQP.callKeep = (action, payload = {}, keep) => {   // fire and forget; keep = also when the page is being closed (find.js: search records)
+  if (!C.APPS_SCRIPT_URL || !USER) return;
+  fetch(C.APPS_SCRIPT_URL, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, keepalive: !!keep,
+    body: JSON.stringify({action, device_id: deviceId(), token: auth().token || '', version: C.APP_VERSION, ip: IP, ...payload})}).catch(() => {});
+};
 async function publicIp() {
   try { const c = new AbortController(); setTimeout(() => c.abort(), 3000);
     return (await (await fetch('https://api.ipify.org?format=json', {signal: c.signal})).json()).ip || ''; } catch { return ''; }

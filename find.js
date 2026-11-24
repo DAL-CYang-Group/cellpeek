@@ -36,7 +36,7 @@ const VOCAB = ALIASES.map(a => a.label + ': ' + a.syn.join(', ')).join('\n') +
   '\n' + Object.entries(NI_CODE).map(([n, c]) => `Ni${n}: Ni${n}, NMC${n}, NM${n}, NMC${c}, ${c}`).join('\n');
 const STOP = new Set(('cell cells battery batteries all the with as additive additives and of in on show me give find that have has having using use used ' +
   'electrolyte electrolytes containing contain contains anode cathode at for a an to please list which where is are was were made electrode positive ' +
-  'negative any every from data cycling cycled only').split(' '));
+  'negative any every from data cycling cycled only neware nw channel channels ch box').split(' '));
 const CJK_STOP = /给我|帮我|所有|全部|电池|电芯|作为|做|添加剂|使用|采用|含有|含|以及|和|与|或|的|用|正极|负极|电解液|电解质|请|查找|找出|搜索|找|查|搜|里面|里|中|带有|带|加了|加|有|是|温度|电压|循环|数据|那些|哪些|这些|一下|材料|体系|只|仅/g;
 
 // ---------- a synonym -> a regular expression (whole token, case and separators ignored) ----------
@@ -58,6 +58,32 @@ function synRx(s) {
   return pre + out + post;
 }
 const termRx = (t, flags = 'i') => new RegExp(t.syn.map(synRx).filter(Boolean).join('|') || '(?!)', flags);
+
+// ---------- Neware machine and channel ("neware 308C 1-7 4-2") ----------
+// A machine is a Neware folder (NEWARE308C, CC_NEWAREB12A ...); "308C" = the folder name without NEWARE / CC_NEWARE.
+// The channel is read from the end of the file name: ..._230007-1-7-195 (device-box-channel-test) or ..._230007_1_7 (device_box_channel).
+// "1-7" means box 1, channel 7. Machine and channel must hold for the same file.
+const short = f => String(f).toLowerCase().replace(/^(cc_)?neware_?/, '');
+function machines() { const s = new Set(); if (NQP.index && NQP.index.all) for (const [, d] of NQP.index.all()) s.add(d); return [...s]; }
+function machineTerm(tok, glued) {
+  const t = tok.toLowerCase().replace(/^neware_?/, ''); if (!/\d/.test(t) || t.length < 2) return null;
+  if (!glued && /^\d+$/.test(t) && t.length !== 3) return null;            // 40, 55, 70 are temperatures unless written NEWARE40
+  const dirs = machines().filter(d => { const x = short(d); return x === t || (x.startsWith(t) && !/^\d/.test(x.slice(t.length)) || x.startsWith(t + '_')); });
+  return dirs.length ? {label: 'Neware ' + tok.replace(/^neware_?/i, '').toUpperCase(), syn: [], kind: 'mach', dirs} : null;
+}
+function chanOf(name) {                          // [box, channel] from the end of a Neware file name, or null
+  let s = String(name).replace(/\.txt$/i, '');
+  for (let k = 0; k < 3; k++) s = s.replace(/\s*-\s*copy(\s*\(\d+\))?$/i, '').replace(/[-_\s]*(temp|stitched|exp|jh)$/i, '')
+    .replace(/[-_]\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/, '').replace(/[-_]\d{8}[-_]\d{6}$/, '').replace(/[-_]\d{14}$/, '').replace(/[-_]$/, '');
+  const ok = (b, c) => b >= 0 && b <= 40 && c >= 1 && c <= 16 ? [b, c] : null;
+  let m = s.match(/(?<![\d.])\d+-(\d{1,2})-(\d{1,2})(?:-(\d+))?(?:_\d{1,4})?$/);       // device-box-channel(-test), the newer names
+  if (m) return m[3] && +m[1] > 16 ? ok(+m[2], +m[3]) : ok(+m[1], +m[2]);              // 111-45-9-3: '111' belongs to the text before
+  m = s.match(/((?:_\d+){2,4})$/); if (!m) return null;
+  const n = m[1].slice(1).split('_').map(Number);
+  if (n.length === 4) return n[3] > 16 ? ok(n[1], n[2]) : ok(n[2], n[3]);              // device_box_channel_test, or ..._device_box_channel
+  return n.length === 3 ? ok(n[1], n[2]) : ok(n[0], n[1]);
+}
+const fileDate = n => { const m = String(n).match(/(?:^|[_\s-])(?:20)?((?:1[4-9]|2\d)(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01]))(?=[_\s-]|$)/); return m ? +m[1] : 0; };   // yymmdd
 
 // ---------- question -> terms (rules; no network) ----------
 function termOf(tok) {
@@ -82,8 +108,16 @@ function parseRules(q) {
   s = s.replace(/(不含有|不含|没有|不要|不带|不加|不用|无)\s*/g, ' -').replace(/(^|\s)(?:without|no|not|excluding|except)\s+/gi, ' -');
   s = s.replace(/(\d{2})\s*(?:°\s*c|℃|度|deg\s*c)(?![a-z])/gi, '$1C ').replace(/(\d{2})\s+c(?![a-z\d])/gi, '$1C ').replace(/(\d\.\d{1,2})\s+v(?![a-z])/gi, '$1V ');
   s = s.replace(CJK_STOP, ' ').replace(/([一-鿿]+)/g, ' $1 ').replace(/-\s+/g, '-');
-  const out = [];
-  for (const tok of s.split(/\s+/)) {
+  const out = [], toks = s.split(/\s+/).filter(Boolean), nw = /(?:^|\s)(?:neware|nw|channels?|ch|box)(?:\s|$)/i.test(s);
+  let mach = null; const chans = [];
+  for (let i = 0; i < toks.length; i++) { const tk = toks[i];
+    const glued = /^neware_?/i.test(tk) || (i > 0 && /^neware$/i.test(toks[i - 1]));
+    const mt = !/^-/.test(tk) && machineTerm(tk, glued); if (mt) { mach = mach ? {...mach, dirs: [...new Set(mach.dirs.concat(mt.dirs))], label: mach.label + ', ' + mt.label.slice(7)} : mt; toks[i] = ''; } }
+  for (let i = 0; i < toks.length; i++) { const m = toks[i].match(/^(\d{1,2})[-_](\d{1,2})$/);
+    if (m && (mach || nw)) { chans.push([+m[1], +m[2]]); toks[i] = ''; } }
+  if (mach) out.push(mach);
+  if (chans.length) out.push({label: (chans.length > 1 ? 'channels ' : 'channel ') + chans.map(c => c.join('-')).join(', '), syn: [], kind: 'chan', chans});
+  for (const tok of toks) {
     const t = termOf(tok); if (!t) continue;
     const same = out.find(x => x.label === t.label && x.not === t.not); if (!same) out.push(t);
   }
@@ -92,6 +126,7 @@ function parseRules(q) {
 // A word of a tracker owner's name (first name, last name) is searched as it is: no AI needed, the answer is there at once.
 const isPerson = t => !!(T.d && t.lit && T.d.people.has(t.label.toLowerCase()));
 const needsAI = (q, terms) => { if (terms.length && terms.every(isPerson)) return false;
+  if (terms.some(t => t.kind)) return terms.some(t => t.lit && !isPerson(t) && /^[a-z]{5,}$/i.test(t.label));   // machine / channel: the rules read it
   return /[一-鿿]/.test(q) || q.trim().split(/\s+/).length >= 4 || /\b(only|except|other than|but not)\b/i.test(q) ||
     terms.some(t => t.lit && !isPerson(t) && /^[a-z]{5,}$/.test(t.label)); };
 
@@ -139,40 +174,78 @@ let NW = null;
 function nwIndex() {
   if (NW) return NW;
   const m = new Map();
-  if (NQP.index && NQP.index.all) for (const [name] of NQP.index.all()) { const bc = primaryBc(name); if (!bc) continue;
-    let a = m.get(bc); if (!a) m.set(bc, a = []); a.push(name); }
+  if (NQP.index && NQP.index.all) for (const [name, dir] of NQP.index.all()) { const bc = primaryBc(name); if (!bc) continue;
+    let a = m.get(bc); if (!a) m.set(bc, a = []); a.push([name, dir]); }
   return (NW = m);
 }
 
 // ---------- search ----------
 const S = {q: '', terms: [], hits: [], groups: [], checked: new Set(), stamp: 0, edited: false, ai: '', aiErr: '', note: '', last: null, n1: 0};
 const AI = {off: false, fails: 0};
+
+// ---------- record of each search (backend tab "searches"), to see how searches are used and to improve them ----------
+// One row per search, sent when the next search starts, the results are closed, or the page is closed: the question, the
+// terms the rules made of it, the terms finally used (after the AI or the user changed them), how many cells were found,
+// the first results, which cells were added and where they were in the list, how often terms were changed, and how it ended.
+let REC = null;
+const termText = ts => ts.map(t => (t.not ? 'not ' : '') + (t.kind === 'mach' ? t.label + ' [' + t.dirs.join(' ') + ']' : t.kind ? t.label
+  : t.label + (t.syn.length > 1 || t.syn[0] !== t.label ? ' [' + t.syn.join(', ') + ']' : ''))).join('; ');
+function recStart(q) {
+  REC = {q, t0: Date.now(), t1: Date.now(), rules: termText(S.terms), edits: 0, added: [], ai: false};
+}
+function recEnd(how, beacon) {
+  const r = REC; REC = null; if (!r) return;
+  const top = S.hits.slice(0, 20).map(h => h.bc);
+  const row = {q: r.q, terms: termText(S.terms), n: S.hits.length, ai: r.ai, rules: r.rules, top: [...new Set(top)].join(' '),
+    added: r.added.join(' '), n_added: r.added.length, edits: r.edits, secs: Math.round((r.t1 - r.t0) / 1000), outcome: r.added.length ? 'added cells' : how};
+  if (NQP.callKeep) NQP.callKeep('search', row, beacon); else console.log('[search record]', row);
+}
+window.addEventListener('pagehide', () => recEnd('page closed', true));
 function search() {
-  const D = T.d, nw = nwIndex(), pos = S.terms.filter(t => !t.not), neg = S.terms.filter(t => t.not);
+  const D = T.d, nw = nwIndex(), pos = S.terms.filter(t => !t.not && !t.kind), neg = S.terms.filter(t => t.not && !t.kind);
+  const mach = S.terms.find(t => t.kind === 'mach'), chan = S.terms.find(t => t.kind === 'chan');
   S.hits = []; S.groups = []; S.n1 = 0;
-  if (!pos.length) return;
+  if (!pos.length && !mach && !chan) return;
   const match = (t) => { const rx = termRx(t), rowHit = D ? new Uint8Array(D.rows.length) : null, cellsHit = new Set(), byName = new Map();
     if (D) for (let i = 0; i < D.scope.length; i++) if (rx.test(D.scope[i])) { rowHit[i] = 1; for (const bc of D.rows[i][6]) cellsHit.add(bc); }
-    for (const [bc, names] of nw) { const n = names.find(x => rx.test(x)); if (n) { cellsHit.add(bc); byName.set(bc, n); } }
+    for (const [bc, files] of nw) { const f = files.find(x => rx.test(x[0])); if (f) { cellsHit.add(bc); byName.set(bc, f[0]); } }
     return {rowHit, cellsHit, byName}; };
   const P = pos.map(match), N = neg.map(match);
+  const where = new Map();                       // machine / channel: the files that are on it (newest first), per cell
+  if (mach || chan) {
+    const dirs = mach && new Set(mach.dirs), loc = {rowHit: D ? new Uint8Array(D.rows.length) : null, cellsHit: new Set(), byName: new Map(), loc: true};
+    for (const [bc, files] of nw) for (const [n, d] of files) {
+      if (dirs && !dirs.has(d)) continue; let c = null;
+      if (chan) { c = chanOf(n); if (!c || !chan.chans.some(x => x[0] === c[0] && x[1] === c[1])) continue; }
+      loc.cellsHit.add(bc); const a = where.get(bc) || []; a.push({n, d, c, date: fileDate(n)}); where.set(bc, a);
+    }
+    for (const [bc, a] of where) { a.sort((x, y) => y.date - x.date); loc.byName.set(bc, a[0].n); }
+    P.unshift(loc);
+  }
+  const nText = P.filter(p => !p.loc).length;
   const small = P.reduce((a, b) => (a.cellsHit.size <= b.cellsHit.size ? a : b));
   const groups = new Map();
   for (const bc of small.cellsHit) {
     if (!P.every(p => p.cellsHit.has(bc)) || N.some(n => n.cellsHit.has(bc))) continue;
     let best = -1, bestN = 0;
-    if (D) for (const i of D.byCell.get(bc) || []) { let n = 0; for (const p of P) n += p.rowHit[i];
+    if (D && nText) for (const i of D.byCell.get(bc) || []) { let n = 0; for (const p of P) n += p.rowHit[i];
       if (n > bestN || (n === bestN && n > 0 && best >= 0 && D.rows[best][7] && !D.rows[i][7])) { best = i; bestN = n; } }
-    const strong = bestN === P.length, name = (P.find(p => p.byName.has(bc)) || {byName: new Map()}).byName.get(bc) || (nw.get(bc) || [])[0] || '';
-    const h = {bc, row: bestN ? best : -1, strong, name, hasData: nw.size ? nw.has(bc) : true};
+    const strong = nText > 0 && bestN === nText, name = (P.find(p => p.byName.has(bc)) || {byName: new Map()}).byName.get(bc) || ((nw.get(bc) || [])[0] || [''])[0];
+    const w = where.get(bc), h = {bc, row: bestN ? best : -1, strong, name, hasData: nw.size ? nw.has(bc) : true, date: w ? w[0].date : 0};
     if (strong) S.n1++;
+    // with channels asked for: one group per machine and channel, the newest file first (the cell now on it is usually the top one)
+    if (chan) { for (const f of w) { const key = 'ch:' + f.d + ':' + f.c.join('-');
+        let g = groups.get(key); if (!g) groups.set(key, g = {key, hits: [], strong: 0, label: short(f.d).toUpperCase() + ' · box ' + f.c[0] + ' channel ' + f.c[1], order: chan.chans.findIndex(x => x[0] === f.c[0] && x[1] === f.c[1])});
+        if (!g.hits.some(x => x.bc === h.bc)) g.hits.push({...h, name: f.n, date: f.date}); }
+      continue; }
     const key = h.row >= 0 ? D.rows[h.row][0] : -1;
     let g = groups.get(key); if (!g) groups.set(key, g = {key, hits: [], strong: 0}); g.hits.push(h); g.strong += strong ? 1 : 0;
   }
-  const gs = [...groups.values()];
-  for (const g of gs) g.hits.sort(g.key < 0 ? (a, b) => b.bc.localeCompare(a.bc, undefined, {numeric: true})
+  const gs = [...groups.values()], byDate = (a, b) => b.date - a.date || b.bc.localeCompare(a.bc, undefined, {numeric: true});
+  for (const g of gs) g.hits.sort(typeof g.key === 'string' || g.key < 0 ? byDate
     : (a, b) => String(D.rows[a.row][1]).localeCompare(String(D.rows[b.row][1])) || D.rows[a.row][2] - D.rows[b.row][2]);
-  gs.sort((a, b) => (a.key < 0) - (b.key < 0) || b.strong - a.strong || b.hits.length - a.hits.length);
+  const isTrk = g => typeof g.key === 'number' && g.key >= 0;
+  gs.sort((a, b) => typeof a.key === 'string' ? a.order - b.order || a.label.localeCompare(b.label) : (!isTrk(a)) - (!isTrk(b)) || b.strong - a.strong || b.hits.length - a.hits.length);
   S.groups = gs; S.hits = gs.flatMap(g => g.hits);
 }
 
@@ -188,7 +261,7 @@ function render() {
   const box = $('#askbox'); if (!box) return;
   if (!S.q || S.closed) { box.hidden = true; return; }
   box.hidden = false;
-  $('#askterms').innerHTML = S.terms.map((t, i) => `<span class="trm${t.not ? ' not' : ''}" data-i="${i}" title="${esc((t.not ? 'Excluded: ' : 'Any of: ') + t.syn.join(', '))} — click to change">${t.not ? 'not ' : ''}${esc(t.label)}<a href="#" title="Remove">✕</a></span>`).join('') +
+  $('#askterms').innerHTML = S.terms.map((t, i) => `<span class="trm${t.not ? ' not' : ''}" data-i="${i}" title="${esc(t.kind === 'mach' ? 'Neware folders: ' + t.dirs.join(', ') : t.kind === 'chan' ? 'box-channel, read from the end of the Neware file names' : (t.not ? 'Excluded: ' : 'Any of: ') + t.syn.join(', '))}${t.kind ? '' : ' — click to change'}">${t.not ? 'not ' : ''}${esc(t.label)}<a href="#" title="Remove">✕</a></span>`).join('') +
     `<a href="#" id="askplus" title="Add a term">+ term</a>`;
   const D = T.d, n = S.hits.length, more = n > MAX_SHOW;
   const info = [];
@@ -201,13 +274,14 @@ function render() {
   else info.push(`trackers: ${D.rows.length.toLocaleString()} rows, ${ago(T.t)}`);
   if (!nwIndex().size) info.push('connect the CYCLING folder (top right) to load cells');
   $('#askinfo').textContent = info.join(' · ');
-  const have = added(), pos = S.terms.filter(t => !t.not);
+  const have = added(), pos = S.terms.filter(t => !t.not && !t.kind);
   const rx = pos.length ? new RegExp(pos.map(t => t.syn.map(synRx).filter(Boolean).join('|')).filter(Boolean).join('|') || '(?!)', 'gi') : /(?!)/g;
   let html = '', shown = 0, i = 0;
   for (const g of S.groups) {
     if (shown >= MAX_SHOW) break;
-    const f = g.key >= 0 ? D.files[g.key] : null, fname = f ? f[0].split('\\').pop() : '';
-    html += `<div class="grp" data-g="${S.groups.indexOf(g)}"><b>${f ? esc(f[1]) : 'Neware file names'}</b><span title="${f ? esc(f[0]) + ' · ' + esc(f[2]) : 'These cells are not named in a tracker row that matches; the terms were found in the names of their Neware files'}">${f ? esc(fname) : 'no matching tracker row'} · ${g.hits.length} cell${g.hits.length === 1 ? '' : 's'}</span><a href="#">select these</a></div>`;
+    const f = typeof g.key === 'number' && g.key >= 0 ? D.files[g.key] : null, fname = f ? f[0].split('\\').pop() : '';
+    if (g.label) html += `<div class="grp" data-g="${S.groups.indexOf(g)}"><b>${esc(g.label)}</b><span title="Read from the end of the Neware file names; newest test first">${g.hits.length} cell${g.hits.length === 1 ? "" : "s"} · newest first</span><a href="#">select these</a></div>`;
+    else html += `<div class="grp" data-g="${S.groups.indexOf(g)}"><b>${f ? esc(f[1]) : 'Neware file names'}</b><span title="${f ? esc(f[0]) + ' · ' + esc(f[2]) : 'These cells are not named in a tracker row that matches; the terms were found in the names of their Neware files'}">${f ? esc(fname) : 'no matching tracker row'} · ${g.hits.length} cell${g.hits.length === 1 ? '' : 's'}</span><a href="#">select these</a></div>`;
     for (const h of g.hits) { const idx = i++; if (shown >= MAX_SHOW) continue; shown++;
       const on = have.has(h.bc), r = h.row >= 0 ? D.rows[h.row] : null;
       // shown: the cells of the row without the empty ones and the plain decimals (weights, thicknesses); the tooltip has the whole row
@@ -217,7 +291,7 @@ function render() {
         : '') + (h.hasData ? '' : ' · no Neware file');
       html += `<div class="row${on ? ' added' : S.checked.has(h.bc) ? ' sel' : ''}${h.hasData ? '' : ' nodata'}" data-i="${idx}" title="${esc(tip)}"><span class="bc">${esc(h.bc)}</span><span class="tx">${hl(text, rx)}</span><span class="mt">${meta}</span></div>`; }
   }
-  if (!n) html = `<div class="none">${pos.length ? 'No cell has all of these terms. Remove a term (✕) or click a term to add other spellings.' : 'Type what the cells should have, e.g. Ni65 graphite VC.'}</div>`;
+  if (!n) html = `<div class="none">${pos.length || S.terms.some(t => t.kind) ? 'No cell has all of these terms. Remove a term (✕) or click a term to add other spellings.' : 'Type what the cells should have, e.g. Ni65 graphite VC.'}</div>`;
   const list = $('#asklist'), top = list.scrollTop; list.innerHTML = html; list.scrollTop = top;
   $('#askadd').textContent = `Add selected${S.checked.size ? ' (' + S.checked.size + ')' : ''}`;
 }
@@ -236,16 +310,18 @@ async function askAI(q, stamp) {
       AI.fails = 0;
       const terms = (j.terms || []).map(t => ({label: String(t.label || '').slice(0, 40), not: !!t.exclude, ai: true,
         syn: (t.synonyms || []).map(x => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 16)})).filter(t => t.label && t.syn.length);
-      if (terms.length && !S.edited) { S.terms = terms; S.note = String(j.note || '').slice(0, 200); S.ai = 'done'; S.checked.clear(); search(); }
+      if (terms.length && !S.edited) { S.terms = terms; S.note = String(j.note || '').slice(0, 200); S.ai = 'done'; S.checked.clear(); search(); if (REC) REC.ai = true; }
       else S.ai = '';
     }
   } catch (e) { if (stamp !== S.stamp) return; S.ai = 'failed'; S.aiErr = e.message.slice(0, 80); if (++AI.fails >= 2) AI.off = true; }
   render();
 }
 function start(q) {
-  q = q.trim(); S.q = q; S.closed = false; S.stamp++; S.edited = false; S.ai = ''; S.note = ''; S.checked.clear(); S.last = null;
+  q = q.trim(); const same = REC && REC.q === q;                    // Enter again on the same question: the same record
+  if (!same) recEnd(q ? 'new search' : 'closed');
+  S.q = q; S.closed = false; S.stamp++; S.edited = false; S.ai = ''; S.note = ''; S.checked.clear(); S.last = null;
   if (!q) { S.terms = []; return render(); }
-  S.terms = parseRules(q);
+  S.terms = parseRules(q); if (!same) recStart(q);
   const stamp = S.stamp;
   // With the trackers loaded, names of people are known and skip the AI; a first download is given 1.5 s before the AI is asked anyway.
   let asked = false; const ai = () => { if (asked) return; asked = true; if (stamp === S.stamp && needsAI(q, S.terms)) askAI(q, stamp); };
@@ -265,7 +341,7 @@ function editTerm(i, chip) {                     // click a term: change its spe
       const syn = v.split(/[,，;；]+/).map(x => x.trim()).filter(Boolean);
       if (syn.length) { const nt = {label: t.label && syn.includes(t.syn[0]) ? t.label : syn[0], syn, not}; i < S.terms.length ? S.terms[i] = nt : S.terms.push(nt); }
       else if (i < S.terms.length) S.terms.splice(i, 1);
-      S.edited = true; S.stamp++; if (S.ai === 'asking') S.ai = ''; S.checked.clear(); search(); }
+      S.edited = true; S.stamp++; if (S.ai === 'asking') S.ai = ''; S.checked.clear(); search(); if (REC) { REC.edits++; REC.t1 = Date.now(); } }
     render(); };
   inp.onkeydown = e => { if (e.key === 'Enter') apply(true); else if (e.key === 'Escape') { e.stopPropagation(); apply(false); } };
   inp.onblur = () => apply(true);
@@ -282,8 +358,8 @@ function init() {
   $('#askterms').addEventListener('click', e => { e.preventDefault();
     if (e.target.id === 'askplus') return editTerm(S.terms.length, e.target);
     const chip = e.target.closest('.trm'); if (!chip) return; const i = +chip.dataset.i;
-    if (e.target.tagName === 'A') { S.terms.splice(i, 1); S.edited = true; S.stamp++; if (S.ai === 'asking') S.ai = ''; S.checked.clear(); search(); render(); }
-    else editTerm(i, chip); });
+    if (e.target.tagName === 'A') { S.terms.splice(i, 1); S.edited = true; S.stamp++; if (S.ai === 'asking') S.ai = ''; S.checked.clear(); search(); render(); REC && REC.edits++; }
+    else if (!(S.terms[i] || {}).kind) editTerm(i, chip); });
   // Rows: click = tick or untick one; Shift+click = the range from the last click; press and drag over rows = tick them all
   // (or untick them all, when the drag starts on a ticked row), as in a photo library. The list scrolls when the pointer
   // is held at its top or bottom edge.
@@ -333,6 +409,7 @@ function init() {
     const bcs = [...S.checked]; if (!bcs.length || !NQP.cellsApi) return;
     const st = $('#status');
     if (bcs.length > MAX_ADD) { if (st) st.textContent = `${bcs.length} cells selected; at most ${MAX_ADD} can be added at once.`; return; }
+    if (REC) { for (const bc of bcs) REC.added.push(bc + '#' + (S.hits.findIndex(h => h.bc === bc) + 1)); REC.t1 = Date.now(); }   // #: place in the list
     NQP.cellsApi.add(bcs.join(' ')); S.checked.clear(); render(); };
   window.addEventListener('nqp-index', () => { NW = null; if (S.q) rerun(); });
 }
