@@ -123,8 +123,24 @@ function parseRules(q) {
   }
   return out;
 }
+// ---------- people: a name -> the initials at the start of that person's Neware file names (backend tab "people") ----------
+// Most cells carry their owner only as initials at the start of the file name (MJH_CYC_1077346 ...: Matthew Hawrylow), and
+// not everybody has a tracker. A term that is a word of a name also finds the files that start with those initials.
+// The term shows them ("matthew + MJH, MPG"); a term changed by hand is searched exactly as typed.
+const PP = {by: new Map()};                      // a word of a name (lower case) -> Set of prefixes
+function setPeople(list) {
+  const by = new Map();
+  for (const [name, pre] of Array.isArray(list) ? list : []) for (const w of String(name).toLowerCase().split(/[^a-z]+/)) { if (w.length < 3) continue;
+    let s = by.get(w); if (!s) by.set(w, s = new Set()); for (const p of pre || []) if (/^[a-z]{2,6}$/i.test(p)) s.add(String(p).toUpperCase()); }
+  PP.by = by;
+}
+function preOf(t) {                              // the prefixes that go with a term, or null
+  if (t.kind || !(t.lit || t.ai)) return null;
+  const s = new Set(); for (const w of t.lit ? [t.label] : t.syn) for (const p of PP.by.get(String(w).toLowerCase()) || []) s.add(p);
+  return s.size ? [...s].sort() : null;
+}
 // A word of a tracker owner's name (first name, last name) is searched as it is: no AI needed, the answer is there at once.
-const isPerson = t => !!(T.d && t.lit && T.d.people.has(t.label.toLowerCase()));
+const isPerson = t => !!(t.lit && ((T.d && T.d.people.has(t.label.toLowerCase())) || PP.by.has(t.label.toLowerCase())));
 const needsAI = (q, terms) => { if (terms.length && terms.every(isPerson)) return false;
   if (terms.some(t => t.kind)) return terms.some(t => t.lit && !isPerson(t) && /^[a-z]{5,}$/i.test(t.label));   // machine / channel: the rules read it
   return /[一-鿿]/.test(q) || q.trim().split(/\s+/).length >= 4 || /\b(only|except|other than|but not)\b/i.test(q) ||
@@ -148,12 +164,16 @@ async function useRec(rec) {                     // {t_file, gz} -> T.d
 function loadTrackers() {
   return T.p || (T.p = (async () => {
     let rec = NQP.idb ? await NQP.idb.get('trk').catch(() => null) : null;       // {t_file, gz}
+    const ppl = NQP.idb ? await NQP.idb.get('ppl').catch(() => null) : null; if (ppl) setPeople(ppl);
+    const people = (list) => { if (!Array.isArray(list)) return; setPeople(list); NQP.idb && NQP.idb.set('ppl', list).catch(() => {}); if (S.q) rerun(true); };
     const fresh = async () => {
       if (C.APPS_SCRIPT_URL && NQP.call) {
         const j = await NQP.call('trackers', {have: rec ? rec.t_file : ''});
+        people(j.people);                                                          // sent with every answer: the tab can change any day
         if (j.gz) { const nr = {t_file: j.t_file, gz: b64bytes(j.gz)}; NQP.idb && NQP.idb.set('trk', nr).catch(() => {}); return nr; }
         if (j.none) return null;
       } else if (!C.APPS_SCRIPT_URL) {                                           // no login configured (testing): a file next to the page
+        fetch('cellpeek_people.json').then(r => r.ok ? r.json() : null).then(people).catch(() => {});
         const r = await fetch('cellpeek_trackers.json.gz'); if (r.ok) return {t_file: 'local', gz: new Uint8Array(await r.arrayBuffer())};
       }
       return rec;
@@ -189,7 +209,7 @@ const AI = {off: false, fails: 0};
 // the first results, which cells were added and where they were in the list, how often terms were changed, and how it ended.
 let REC = null;
 const termText = ts => ts.map(t => (t.not ? 'not ' : '') + (t.kind === 'mach' ? t.label + ' [' + t.dirs.join(' ') + ']' : t.kind ? t.label
-  : t.label + (t.syn.length > 1 || t.syn[0] !== t.label ? ' [' + t.syn.join(', ') + ']' : ''))).join('; ');
+  : t.label + (t.syn.length > 1 || t.syn[0] !== t.label ? ' [' + t.syn.join(', ') + ']' : '') + (preOf(t) ? ' +files of ' + preOf(t).join(' ') : ''))).join('; ');
 function recStart(q) {
   REC = {q, t0: Date.now(), t1: Date.now(), rules: termText(S.terms), edits: 0, added: [], ai: false};
 }
@@ -207,8 +227,9 @@ function search() {
   S.hits = []; S.groups = []; S.n1 = 0;
   if (!pos.length && !mach && !chan) return;
   const match = (t) => { const rx = termRx(t), rowHit = D ? new Uint8Array(D.rows.length) : null, cellsHit = new Set(), byName = new Map();
+    const pre = preOf(t), rxP = pre && new RegExp('^(?:' + pre.join('|') + ')(?![a-z])', 'i');      // a person's initials: at the start of the file name only
     if (D) for (let i = 0; i < D.scope.length; i++) if (rx.test(D.scope[i])) { rowHit[i] = 1; for (const bc of D.rows[i][6]) cellsHit.add(bc); }
-    for (const [bc, files] of nw) { const f = files.find(x => rx.test(x[0])); if (f) { cellsHit.add(bc); byName.set(bc, f[0]); } }
+    for (const [bc, files] of nw) { const f = files.find(x => rx.test(x[0]) || (rxP && rxP.test(x[0]))); if (f) { cellsHit.add(bc); byName.set(bc, f[0]); } }
     return {rowHit, cellsHit, byName}; };
   const P = pos.map(match), N = neg.map(match);
   const where = new Map();                       // machine / channel: the files that are on it (newest first), per cell
@@ -261,7 +282,8 @@ function render() {
   const box = $('#askbox'); if (!box) return;
   if (!S.q || S.closed) { box.hidden = true; return; }
   box.hidden = false;
-  $('#askterms').innerHTML = S.terms.map((t, i) => `<span class="trm${t.not ? ' not' : ''}" data-i="${i}" title="${esc(t.kind === 'mach' ? 'Neware folders: ' + t.dirs.join(', ') : t.kind === 'chan' ? 'box-channel, read from the end of the Neware file names' : (t.not ? 'Excluded: ' : 'Any of: ') + t.syn.join(', '))}${t.kind ? '' : ' — click to change'}">${t.not ? 'not ' : ''}${esc(t.label)}<a href="#" title="Remove">✕</a></span>`).join('') +
+  $('#askterms').innerHTML = S.terms.map((t, i) => { const pre = preOf(t);
+    return `<span class="trm${t.not ? ' not' : ''}" data-i="${i}" title="${esc(t.kind === 'mach' ? 'Neware folders: ' + t.dirs.join(', ') : t.kind === 'chan' ? 'box-channel, read from the end of the Neware file names' : (t.not ? 'Excluded: ' : 'Any of: ') + t.syn.join(', ') + (pre ? '; and Neware files that start with the initials ' + pre.join(', ') + ' (people with this name)' : ''))}${t.kind ? '' : ' — click to change'}">${t.not ? 'not ' : ''}${esc(t.label)}${pre ? ' + ' + esc(pre.slice(0, 5).join(', ')) + (pre.length > 5 ? ', …' : '') : ''}<a href="#" title="Remove">✕</a></span>`; }).join('') +
     `<a href="#" id="askplus" title="Add a term">+ term</a>`;
   const D = T.d, n = S.hits.length, more = n > MAX_SHOW;
   const info = [];
@@ -339,7 +361,8 @@ function editTerm(i, chip) {                     // click a term: change its spe
   const apply = (ok) => { if (done) return; done = true;
     if (ok) { let v = inp.value.trim(); const not = /^[-!]/.test(v); v = v.replace(/^[-!]+\s*/, '');
       const syn = v.split(/[,，;；]+/).map(x => x.trim()).filter(Boolean);
-      if (syn.length) { const nt = {label: t.label && syn.includes(t.syn[0]) ? t.label : syn[0], syn, not}; i < S.terms.length ? S.terms[i] = nt : S.terms.push(nt); }
+      if (syn.length) { const nt = syn.join('|') === t.syn.join('|') ? {...t, not}                 // nothing changed: the same term (with a person's initials)
+          : {label: t.label && syn.includes(t.syn[0]) ? t.label : syn[0], syn, not}; i < S.terms.length ? S.terms[i] = nt : S.terms.push(nt); }
       else if (i < S.terms.length) S.terms.splice(i, 1);
       S.edited = true; S.stamp++; if (S.ai === 'asking') S.ai = ''; S.checked.clear(); search(); if (REC) { REC.edits++; REC.t1 = Date.now(); } }
     render(); };
@@ -348,7 +371,7 @@ function editTerm(i, chip) {                     // click a term: change its spe
 }
 
 // ---------- wiring ----------
-NQP.find = {render: () => { if (S.q) render(); }, _parse: parseRules, _rx: synRx, _state: S, _trackers: T};
+NQP.find = {render: () => { if (S.q) render(); }, _parse: parseRules, _rx: synRx, _state: S, _trackers: T, _search: search, _people: setPeople, _use: useRec};
 function init() {
   const inp = $('#ask'); if (!inp) return;
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') start(inp.value); else if (e.key === 'Escape') { inp.value = ''; start(''); } });
