@@ -344,15 +344,15 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.4.1&b=49"></script>
-<script src="versions.js?v=0.4.1&b=49"></script>
-<script src="data.js?v=0.4.1&b=49"></script>
-<script src="auth.js?v=0.4.1&b=49"></script>
-<script src="find.js?v=0.4.1&b=49"></script>
-<script src="raman.js?v=0.4.1&b=49"></script>
-<script src="xps.js?v=0.4.1&b=49"></script>
-<script src="eis.js?v=0.4.1&b=49"></script>
-<script src="drt.js?v=0.4.1&b=49"></script>
+<script src="config.js?v=0.4.1&b=50"></script>
+<script src="versions.js?v=0.4.1&b=50"></script>
+<script src="data.js?v=0.4.1&b=50"></script>
+<script src="auth.js?v=0.4.1&b=50"></script>
+<script src="find.js?v=0.4.1&b=50"></script>
+<script src="raman.js?v=0.4.1&b=50"></script>
+<script src="xps.js?v=0.4.1&b=50"></script>
+<script src="eis.js?v=0.4.1&b=50"></script>
+<script src="drt.js?v=0.4.1&b=50"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -376,7 +376,8 @@
   <div class="eh"><span>Data source (super users)</span><button type="button" id="rm_x">✕</button></div>
   <div class="sb">
     <button type="button" id="rm_local">Use a local folder on this computer</button>
-    <p class="gmuted">or the office PC through Tailscale:</p>
+    <button type="button" id="rm_office" title="The office PC reads Z: and answers through its Cloudflare tunnel; the address is fetched from the backend">Office PC (online)</button>
+    <p class="gmuted">or a server address (e.g. the office PC through Tailscale):</p>
     <label>Server address <input type="text" id="rm_base" placeholder="https://office-pc.tailXXXX.ts.net"></label>
     <label>Token <input type="text" id="rm_tok" placeholder="token set on the office PC"></label>
     <div id="rm_msg" class="gerr"></div>

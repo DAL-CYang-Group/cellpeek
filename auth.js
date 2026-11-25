@@ -145,7 +145,9 @@ function srcLabel() {
   const el = $('#src'), S = NQP.source; el.hidden = false;
   if (S.mode === 'server') { el.textContent = 'Data: office server'; return; }
   const sup = USER && USER.super;
-  if (S.mode === 'remote') {
+  if (S.mode === 'remote' && S.office) {
+    el.innerHTML = `Data: <span title="${esc(S.base || 'no address yet')}">office PC</span> <a href="#" id="srcchg">change</a>`;
+  } else if (S.mode === 'remote') {
     el.innerHTML = `Data: remote · ${esc(S.base.replace(/^https?:\/\//, ''))} <a href="#" id="srcchg">change</a>`;
   } else if (NQP.folder.name()) {
     el.innerHTML = `Data: ${esc(NQP.folder.name())} <a href="#" id="srcchg">change</a>`;
@@ -164,7 +166,12 @@ let FOLDER_STATE = 'none', SAVED_NAME = '';
 function folderReady() { status('Data folder: ' + NQP.folder.roots().join(' + ')); if (NQP.retryCells) NQP.retryCells(); }
 async function dataStep() {
   const r = LS.get('nqp_src');
-  if (USER && USER.super && r === 'remote' && LS.get('nqp_remote')) { useRemote(LS.get('nqp_remote')); return openPage(); }
+  const rm = LS.get('nqp_remote');
+  if (USER && USER.super && r === 'remote' && rm && rm.office) {               // office PC: get its current address
+    try { useRemote(await officeAddr()); return openPage(); }
+    catch (e) { openPage(); useRemote({base: '', token: '', office: true}); status('Office PC: ' + e.message + '. Data: change to choose another source.'); return; }
+  }
+  if (USER && USER.super && r === 'remote' && rm) { useRemote(rm); return openPage(); }
   if (!NQP.folder.supported()) return gate(`${TITLE}<p>Please open this page in <b>Google Chrome</b> or <b>Microsoft Edge</b>.
     Other browsers cannot read a folder on your computer.</p>${USER && USER.super ? '<button id="g_rm">Use remote server instead</button>' : ''}`)
     , USER && USER.super && ($('#g_rm').onclick = chooseSource);
@@ -230,7 +237,15 @@ async function pickFolder() {
     if (!r.roots.some(n => /NEWARE/i.test(n))) status('Note: no NEWARE folder found inside ' + r.name + '; searching this folder only.');
   } catch (e) { if (e.name !== 'AbortError') status('Folder: ' + e.message); }
 }
-function useRemote(r) { Object.assign(NQP.source, {mode: 'remote', base: r.base, token: r.token}); srcLabel(); }
+function useRemote(r) { Object.assign(NQP.source, {mode: 'remote', base: r.base, token: r.token, office: !!r.office}); srcLabel(); }
+// Office PC through its Cloudflare tunnel: the address changes whenever the PC restarts the tunnel, so it is asked from the
+// backend each time (super users only) instead of being typed in. data.js asks again when a request to the old address fails.
+async function officeAddr() {
+  const j = await call('office');
+  if (j.none) throw new Error('the office PC has not sent an address yet (is tunnel.py running there?)');
+  return {base: j.url.replace(/\/+$/, ''), token: j.token, office: true, t: j.t};
+}
+NQP.officeRefresh = async () => { const r = await officeAddr(); useRemote(r); return r; };
 
 // super users: local folder or remote server (Tailscale)
 function chooseSource() {
@@ -242,6 +257,16 @@ function initRemoteDialog() {
   const d = $('#rmt');
   $('#rm_x').onclick = () => d.close();
   $('#rm_local').onclick = () => { d.close(); NQP.source.base = ''; pickFolder(); };
+  $('#rm_office').onclick = async () => {
+    $('#rm_msg').textContent = 'Asking for the office PC…';
+    try {
+      const r = await officeAddr();
+      const j = await (await fetch(r.base + '/api/info?token=' + encodeURIComponent(r.token))).json();
+      if (!j.roots) throw new Error(j.error || 'unexpected answer');
+      LS.set('nqp_remote', {office: true}); LS.set('nqp_src', 'remote'); useRemote(r); d.close(); openPage();
+      status('Office PC: ' + j.roots[0]); NQP.log('remote', {office: true});
+    } catch (e) { $('#rm_msg').textContent = 'Office PC not reachable: ' + e.message; }
+  };
   $('#rm_go').onclick = async () => {
     const r = {base: $('#rm_base').value.trim().replace(/\/+$/, ''), token: $('#rm_tok').value.trim()};
     $('#rm_msg').textContent = 'Testing…';

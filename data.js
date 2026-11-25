@@ -279,8 +279,16 @@ async function http(url) {
 window.api = async function (path) {
   const u = new URL(path, 'http://x'), q = Object.fromEntries(u.searchParams), t0 = performance.now();
   if (src.mode !== 'local') {
-    const tok = src.token ? (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(src.token) : '';
-    return http((src.mode === 'remote' ? src.base.replace(/\/+$/, '') : '.') + path + tok);
+    const go = () => { const tok = src.token ? (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(src.token) : '';
+      return http((src.mode === 'remote' ? src.base.replace(/\/+$/, '') : '.') + path + tok); };
+    if (!src.office || !NQP.officeRefresh) return go();
+    try { if (!src.base) throw new Error('no address'); return await go(); }
+    catch (e) {                                    // office PC: its tunnel may have a new address since; ask the backend once more
+      if (/not found|barcode/.test(e.message)) throw e;
+      const old = src.base; await NQP.officeRefresh().catch(() => {});
+      if (src.base && src.base !== old) return go();
+      throw new Error('office PC not reachable (' + e.message + ')');
+    }
   }
   if (u.pathname === '/api/info') return {roots: local.roots.map(r => r.name), remote: false};
   const bc = (q.bc || '').trim();
