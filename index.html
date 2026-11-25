@@ -127,6 +127,7 @@
   :is(#mods, .rgrid) .axauto.set:hover { color:var(--text); }
   .expbtn { margin-left:auto; font-size:11.5px; padding:2px 9px; border-radius:10px; color:var(--accent); border-color:var(--accent); background:#fff; }
   .expbtn:hover { background:var(--accent); color:#fff; }
+  .expbtn + .expbtn { margin-left:6px; } .copied, .copied:hover { color:#1a7f37 !important; border-color:#1a7f37 !important; background:#fff !important; }
   .expbtn:disabled, .expbtn:disabled:hover { color:var(--muted); border-color:var(--line); background:#fff; cursor:not-allowed; }
   #modstop { display:flex; align-items:center; gap:10px; min-height:22px; } #stackwhy { margin-left:auto; font-size:11.5px; color:var(--muted); } #stackwhy:empty + .expbtn { margin-left:auto; } #stackwhy + .expbtn { margin-left:0; } #modstop .expbtn + .expbtn { margin-left:0; }
   .dq-cell .hrow { display:flex; align-items:center; gap:8px; }
@@ -344,15 +345,15 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.4.1&b=50"></script>
-<script src="versions.js?v=0.4.1&b=50"></script>
-<script src="data.js?v=0.4.1&b=50"></script>
-<script src="auth.js?v=0.4.1&b=50"></script>
-<script src="find.js?v=0.4.1&b=50"></script>
-<script src="raman.js?v=0.4.1&b=50"></script>
-<script src="xps.js?v=0.4.1&b=50"></script>
-<script src="eis.js?v=0.4.1&b=50"></script>
-<script src="drt.js?v=0.4.1&b=50"></script>
+<script src="config.js?v=0.4.1&b=51"></script>
+<script src="versions.js?v=0.4.1&b=51"></script>
+<script src="data.js?v=0.4.1&b=51"></script>
+<script src="auth.js?v=0.4.1&b=51"></script>
+<script src="find.js?v=0.4.1&b=51"></script>
+<script src="raman.js?v=0.4.1&b=51"></script>
+<script src="xps.js?v=0.4.1&b=51"></script>
+<script src="eis.js?v=0.4.1&b=51"></script>
+<script src="drt.js?v=0.4.1&b=51"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -395,7 +396,7 @@
       <label id="exppctrow"><input type="checkbox" id="exppct" checked> Retention (%) of the last cycle at the right</label>
     </div>
   </div>
-  <div class="ef">File name <input type="text" id="expname"><button type="button" class="primary" id="expsave">Save as…</button></div>
+  <div class="ef">File name <input type="text" id="expname"><button type="button" id="expcopy" title="Copy the picture, to paste it into PowerPoint, Word, an e-mail or a chat">Copy</button><button type="button" class="primary" id="expsave">Save as…</button></div>
 </dialog>
 <script>
 // ---------------- tabs ----------------
@@ -1180,6 +1181,16 @@ $('#expfill').onchange = e => { EXPST.fill = e.target.checked; expRedraw(); };
 $('#explegon').onchange = e => { EXPST.legend = e.target.checked; expRedraw(); };
 $('#exppct').onchange = e => { EXPST.pct = e.target.checked; expRedraw(); };
 $('#expx').onclick = () => $('#exp').close();
+// Copy a picture to the clipboard (all tabs). The PNG is handed over as a promise so that the browser still counts the click.
+window.copyPng = (canvas, btn) => {
+  const flash = (t, ok) => { if (!btn) return; const old = btn.dataset.txt || btn.textContent; btn.dataset.txt = old; btn.textContent = t;
+    btn.classList.toggle('copied', ok); clearTimeout(btn._t); btn._t = setTimeout(() => { btn.textContent = old; btn.classList.remove('copied'); }, 1600); };
+  if (!navigator.clipboard || !window.ClipboardItem) { flash('Not in this browser', false); return Promise.resolve(false); }
+  const blob = new Promise((res, rej) => canvas.toBlob(b => b ? res(b) : rej(new Error('no image')), 'image/png'));
+  return navigator.clipboard.write([new ClipboardItem({'image/png': blob})])
+    .then(() => { flash('Copied ✓', true); NQP.log && NQP.log('copy'); return true; }, e => { flash('Copy failed', false); console.warn(e); return false; });
+};
+$('#expcopy').onclick = e => { const cv = document.createElement('canvas'); drawFig(cv, EXPT, EXPST, EXPSCALE); copyPng(cv, e.currentTarget); };
 $('#expsave').onclick = async () => {
   const cv = document.createElement('canvas'); drawFig(cv, EXPT, EXPST, EXPSCALE);
   const blob = await new Promise(r => cv.toBlob(r, 'image/png'));

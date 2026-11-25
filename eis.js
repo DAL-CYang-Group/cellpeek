@@ -318,14 +318,17 @@ function build() {
 const headHtml = s => { const k = scale(), u = unit(), f = good(s), poor = f && f.err > POOR;
   return `<span class="t" title="${esc(s.name)}"><bdi>${esc(s.name)}</bdi></span>
     <span class="opts">${!s.fit ? 'fitting…' : !f ? '<b style="color:#b00">could not be fitted</b>' : `R_HFI <b>${fmt(f.R_HFI * k)}</b> · R_ct <b>${fmt(f.R_ct * k)}</b> · width <b>${fmt((f.R_contact + f.R_ct) * k)}</b> ${u} · ${f.tail ? 'tail' : 'no tail'} · <span style="${poor ? 'color:#b00;font-weight:600' : ''}">error ${f.err.toFixed(2)} %</span>`}</span>
-    <button type="button" class="expbtn" data-png="${s.id}">PNG</button>`; };
+    <button type="button" class="expbtn" data-copy="${s.id}" title="Copy the picture to the clipboard">Copy</button><button type="button" class="expbtn" data-png="${s.id}">PNG</button>`; };
 function drawAll() { const rg = commonRange(); for (const s of S.spectra) { const cv = $('#cv_' + s.id); if (cv) drawNyq(cv, s, rg); } }
 function renderRow(s) {                           // after one fit: its card, the table and the banner (the common axes may have moved)
   const c = $('#card_' + s.id); if (c) { $('.bar', c).innerHTML = headHtml(s); hookCard(c, s); }
   renderTable(); drawAll();
 }
-function hookCard(c, s) { const b = $('[data-png]', c); if (b) b.onclick = () => { const cv = $('#cv_' + s.id), c2 = document.createElement('canvas'); c2.width = cv.width; c2.height = cv.height; const g = c2.getContext('2d');
-  g.fillStyle = '#fff'; g.fillRect(0, 0, c2.width, c2.height); g.drawImage(cv, 0, 0); const a = document.createElement('a'); a.href = c2.toDataURL('image/png'); a.download = 'eis_' + s.name + '.png'; a.click(); }; }
+function hookCard(c, s) {
+  const pic = () => { const cv = $('#cv_' + s.id), c2 = document.createElement('canvas'); c2.width = cv.width; c2.height = cv.height; const g = c2.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c2.width, c2.height); g.drawImage(cv, 0, 0); return c2; };
+  const b = $('[data-png]', c); if (b) b.onclick = () => { const a = document.createElement('a'); a.href = pic().toDataURL('image/png'); a.download = 'eis_' + s.name + '.png'; a.click(); };
+  const k = $('[data-copy]', c); if (k) k.onclick = () => copyPng(pic(), k); }
 function renderTable() {
   const k = scale(), u = unit();
   const rows = S.spectra.map(q => { const t = good(q), poor = t && t.err > POOR;

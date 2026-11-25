@@ -398,7 +398,7 @@ function build() {
           <span class="opts">Show <select id="wf_view"><option value="corrected">corrected</option><option value="raw">raw + background</option></select>
           <label><input type="checkbox" id="wf_norm"> normalize</label> <label>offset <input type="number" id="wf_off" step="0.1" style="width:56px"></label></span>
           <button type="button" class="primary" id="ft_open">Open fitting ▸</button>
-          <button type="button" class="expbtn" data-png="wf">Export PNG</button></div>
+          <button type="button" class="expbtn" data-rcopy="wf" title="Copy the picture to the clipboard">Copy</button><button type="button" class="expbtn" data-png="wf">Export PNG</button></div>
         <div class="hintrow" id="wf_hint"></div>
         <div class="plot"><canvas id="wf_cv"></canvas></div>
         <div id="wf_list"></div>
@@ -408,7 +408,7 @@ function build() {
         <div class="bar"><span class="t" id="ft_title">Fitting</span>
           <span id="ft_btns" class="opts"></span>
           <button type="button" id="ft_close" title="Close the fitting panel">✕ Close</button>
-          <button type="button" class="expbtn" data-png="fit">Export PNG</button></div>
+          <button type="button" class="expbtn" data-rcopy="fit" title="Copy the picture to the clipboard">Copy</button><button type="button" class="expbtn" data-png="fit">Export PNG</button></div>
         <div class="hintrow" id="ft_hint"></div>
         <div class="plot"><canvas id="ft_cv"></canvas></div>
         <div class="side" id="ft_side"></div>
@@ -459,6 +459,7 @@ function build() {
   $('#wf_norm').onchange = e => { S.wf.norm = e.target.checked; commit(e.target.checked ? 'Waterfall: normalize' : 'Waterfall: no normalize'); };
   $('#wf_off').onchange = e => { S.wf.offset = +e.target.value || 0; commit('Waterfall offset ' + S.wf.offset); };
   document.querySelectorAll('[data-png]').forEach(b => b.onclick = () => savePng(b.dataset.png));
+  document.querySelectorAll('[data-rcopy]').forEach(b => b.onclick = () => savePng(b.dataset.rcopy, b));
   document.addEventListener('keydown', e => {
     if ($('section[data-pane=raman]').hidden || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
     const k = e.key.toLowerCase();
@@ -871,12 +872,13 @@ async function exportAll() {
   }
   if (window.NQP && NQP.log) NQP.log('raman_export', {n: files.length});
 }
-function savePng(which) {
+function savePng(which, copyBtn) {                 // copyBtn: copy to the clipboard instead of saving
   const cv = $(which === 'wf' ? '#wf_cv' : '#ft_cv'), sp = cur(), redraw = which === 'wf' ? drawWf : drawFit;
   EXPORTING = true; try { redraw(); } finally { EXPORTING = false; }      // the PNG is the plot as it is on screen: same range, same proportions, same labels and label positions
   const F = which === 'wf' ? WF : FT, cut = F ? Math.max(0, Math.round((F.L - 36) * (cv.width / (parseFloat(cv.style.width) || cv.width)))) : 0;   // empty left margin (room for the axis-end boxes on screen)
   const c2 = document.createElement('canvas'); c2.width = cv.width - cut; c2.height = cv.height; const g = c2.getContext('2d');
   g.fillStyle = '#fff'; g.fillRect(0, 0, c2.width, c2.height); g.drawImage(cv, -cut, 0);
+  if (copyBtn) { copyPng(c2, copyBtn); redraw(); return; }
   const a = document.createElement('a'); a.href = c2.toDataURL('image/png'); a.download = (which === 'wf' ? 'raman_waterfall' : 'raman_fit_' + (sp ? sp.name : '')) + '.png'; a.click();
   redraw();
 }

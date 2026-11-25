@@ -527,7 +527,7 @@ function build() {
         <div class="rsplit" id="xr_split" title="Drag to make the plot narrower or wider · double-click: half and half"></div>
         <div class="bar"><span class="t" id="xft_title">Fitting</span>
           <span id="xft_btns" class="opts"></span>
-          <button type="button" class="expbtn" data-xpng="fit" style="margin-left:auto">Export PNG</button></div>
+          <button type="button" class="expbtn" data-copyx="fit" style="margin-left:auto" title="Copy the picture to the clipboard">Copy</button><button type="button" class="expbtn" data-xpng="fit">Export PNG</button></div>
         <div class="hintrow" id="xft_hint"></div>
         <div class="plot"><canvas id="xft_cv"></canvas></div>
         <div id="xwf_list"></div>
@@ -584,6 +584,7 @@ function build() {
   $('#xwf_off').onchange = e => { S.wf.offset = +e.target.value || 0; commit('Waterfall offset ' + S.wf.offset); };
   $('#xwf_fits').onchange = e => { S.wf.fits = e.target.checked; commit(e.target.checked ? 'Spectra: show fits' : 'Spectra: hide fits'); };
   document.querySelectorAll('[data-xpng]').forEach(b => b.onclick = () => savePng(b.dataset.xpng));
+  document.querySelectorAll('[data-copyx]').forEach(b => b.onclick = () => savePng(b.dataset.copyx, b));
   document.addEventListener('keydown', e => {
     if ($('section[data-pane=xps]').hidden || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
     const k = e.key.toLowerCase();
@@ -1025,12 +1026,13 @@ async function exportAll() {
   }
   if (window.NQP && NQP.log) NQP.log('xps_export', {n: files.length});
 }
-function savePng(which) {
+function savePng(which, copyBtn) {                 // copyBtn: copy to the clipboard instead of saving
   const cv = $(which === 'wf' ? '#xwf_cv' : '#xft_cv'), sp = cur(), redraw = which === 'wf' ? drawWf : drawFit;
   EXPORTING = true; try { redraw(); } finally { EXPORTING = false; }      // the PNG is the plot as it is on screen: same range, same proportions, same labels and label positions
   const F = which === 'wf' ? WF : FT, cut = F ? Math.max(0, Math.round((F.L - 36) * (cv.width / (parseFloat(cv.style.width) || cv.width)))) : 0;   // empty left margin (room for the axis-end boxes on screen)
   const c2 = document.createElement('canvas'); c2.width = cv.width - cut; c2.height = cv.height; const g = c2.getContext('2d');
   g.fillStyle = '#fff'; g.fillRect(0, 0, c2.width, c2.height); g.drawImage(cv, -cut, 0);
+  if (copyBtn) { copyPng(c2, copyBtn); redraw(); return; }
   const a = document.createElement('a'); a.href = c2.toDataURL('image/png'); a.download = (which === 'wf' ? 'xps_spectra' : 'xps_fit_' + (sp ? sp.name : '')) + '.png'; a.click();
   redraw();
 }
