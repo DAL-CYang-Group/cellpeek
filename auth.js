@@ -261,7 +261,7 @@ function initRemoteDialog() {
     $('#rm_msg').textContent = 'Asking for the office PC…';
     try {
       const r = await officeAddr();
-      const j = await (await fetch(r.base + '/api/info?token=' + encodeURIComponent(r.token))).json();
+      const j = await (await fetch(r.base + '/api/info', {headers: {'X-Token': r.token}})).json();
       if (!j.roots) throw new Error(j.error || 'unexpected answer');
       LS.set('nqp_remote', {office: true}); LS.set('nqp_src', 'remote'); useRemote(r); d.close(); openPage();
       status('Office PC: ' + j.roots[0]); NQP.log('remote', {office: true});
@@ -271,7 +271,7 @@ function initRemoteDialog() {
     const r = {base: $('#rm_base').value.trim().replace(/\/+$/, ''), token: $('#rm_tok').value.trim()};
     $('#rm_msg').textContent = 'Testing…';
     try {
-      const j = await (await fetch(r.base + '/api/info' + (r.token ? '?token=' + encodeURIComponent(r.token) : ''))).json();
+      const j = await (await fetch(r.base + '/api/info', r.token ? {headers: {'X-Token': r.token}} : undefined)).json();
       if (!j.roots) throw new Error(j.error || 'unexpected answer');
       LS.set('nqp_remote', r); LS.set('nqp_src', 'remote'); useRemote(r); d.close(); openPage();
       status('Remote server: ' + j.roots[0]); NQP.log('remote', {base: r.base});

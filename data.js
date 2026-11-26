@@ -272,15 +272,14 @@ const local = {
 // ---------- the api() used by the page ----------
 const src = {mode: 'local', base: '', token: ''};
 NQP.source = src;
-async function http(url) {
-  const r = await fetch(url); let j; try { j = await r.json(); } catch { throw new Error('bad answer from server (' + r.status + ')'); }
+async function http(url, token) {               // the token goes in a header, so it is not in the address (and not in the tunnel's logs)
+  const r = await fetch(url, token ? {headers: {'X-Token': token}} : undefined); let j; try { j = await r.json(); } catch { throw new Error('bad answer from server (' + r.status + ')'); }
   if (!r.ok) throw new Error(j.error || r.statusText); return j;
 }
 window.api = async function (path) {
   const u = new URL(path, 'http://x'), q = Object.fromEntries(u.searchParams), t0 = performance.now();
   if (src.mode !== 'local') {
-    const go = () => { const tok = src.token ? (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(src.token) : '';
-      return http((src.mode === 'remote' ? src.base.replace(/\/+$/, '') : '.') + path + tok); };
+    const go = () => http((src.mode === 'remote' ? src.base.replace(/\/+$/, '') : '.') + path, src.token);
     if (!src.office || !NQP.officeRefresh) return go();
     try { if (!src.base) throw new Error('no address'); return await go(); }
     catch (e) {                                    // office PC: its tunnel may have a new address since; ask the backend once more
