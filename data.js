@@ -281,12 +281,20 @@ window.api = async function (path) {
   if (src.mode !== 'local') {
     const go = () => http((src.mode === 'remote' ? src.base.replace(/\/+$/, '') : '.') + path, src.token);
     if (!src.office || !NQP.officeRefresh) return go();
-    try { if (!src.base) throw new Error('no address'); return await go(); }
-    catch (e) {                                    // office PC: its tunnel may have a new address since; ask the backend once more
-      if (/not found|barcode/.test(e.message)) throw e;
+    // A network error (TypeError) is either a tunnel with a new address, or a request the tunnel cut off after 100 s while the
+    // office PC was still reading a large file (it keeps going and caches the result). So: ask the backend for the address;
+    // if it is the same, wait and ask the PC again, which then answers from its cache. Errors the PC itself sends are not retried.
+    try { if (!src.base) throw new TypeError('no address'); return await go(); }
+    catch (e) {
+      if (!(e instanceof TypeError)) throw e;
       const old = src.base; await NQP.officeRefresh().catch(() => {});
       if (src.base && src.base !== old) return go();
-      throw new Error('office PC not reachable (' + e.message + ')');
+      let last = e;
+      for (const s of (NQP.officeWaits || [5, 10, 20, 30, 45])) {
+        await new Promise(r => setTimeout(r, s * 1000));
+        try { return await go(); } catch (e2) { if (!(e2 instanceof TypeError)) throw e2; last = e2; }
+      }
+      throw new Error('office PC not reachable (' + last.message + ')');
     }
   }
   if (u.pathname === '/api/info') return {roots: local.roots.map(r => r.name), remote: false};
