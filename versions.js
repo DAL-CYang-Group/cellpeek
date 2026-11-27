@@ -1,6 +1,7 @@
 // Version history, newest first. The first entry is the running version.
 // Rule: ask Chongyin before changing the version number. Notes: one short line per change, no details.
 window.NQP_VERSIONS = [
+  {v: '0.4.2', date: '2026-11-27', notes: ['Neware Cycling: drop Maccor files in the box next to Search', 'Smart search: Neware machine and channel (308C 1-7 4-2); a person\'s name also finds their files', 'Copy button next to every picture export', 'Neware PNG export: retention of the last cycle', 'Super users: Office PC (online)']},
   {v: '0.4.1', date: '2026-11-23', notes: ['Neware Cycling: Export Excel, one sheet for each plot', 'Sign-in no longer waits for the data folder']},
   {v: '0.4.0', date: '2026-11-23', notes: ['Smart search: find cells by description (Ni65 graphite with VC) in the cell trackers and file names']},
   {v: '0.3.3', date: '2026-11-20', notes: ['Combined PNG', 'Tick boxes to hide cells', 'EIS ECM: Excel export']},
