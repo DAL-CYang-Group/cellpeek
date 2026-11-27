@@ -25,7 +25,7 @@
   #hdrsp { margin-left:auto; }
   input[type=text], input[type=number], select { font:inherit; padding:4px 6px; border:1px solid var(--line); border-radius:5px; background:#fff; }
   input[type=number] { width:64px; }
-  #bc { width:400px; }
+  #bc { width:430px; }
   button { font:inherit; padding:5px 12px; border:1px solid var(--line); border-radius:5px; background:#fff; cursor:pointer; }
   button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
   button:disabled { opacity:.5; cursor:default; }
@@ -59,7 +59,8 @@
   #n_drop { min-width:0; padding:9px 16px 9px 12px; gap:10px; }
   @media (min-width:1120px) { #n_drop { align-self:flex-end; box-sizing:border-box; height:72px; margin-top:-40px; position:relative; z-index:1; } }
   #ask { width:520px; max-width:100%; }
-  #asklabel { font-weight:600; color:var(--accent); font-size:13px; white-space:nowrap; }
+  #asklabel, #bclabel { font-weight:600; color:var(--accent); font-size:13px; white-space:nowrap; }
+  #add, #askgo { min-width:78px; } #askgo + .rdrop { margin-left:6px; }   /* the two rows end at the same place; a little room before the Maccor box */
   #askbox { margin:6px 16px 0; background:var(--card); border:1px solid var(--line); border-radius:8px; }
   #askbox .kh { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--line); font-size:13px; }
   #askbox .kh .sp { margin-left:auto; }
@@ -296,6 +297,7 @@
   <span id="who" hidden></span>
 </header>
 <div class="toolbar" data-pane="neware">
+  <label for="bc" id="bclabel" title="Add cells by barcode">Barcode</label>
   <input id="bc" type="text" placeholder="e.g. 1169067, 1169068  or a range 1172140-150, then Enter" title="Separate barcodes with spaces, commas or ;  ·  a range: 1172140-1172150, or only the last digits: 1172140-150 or 1172140-50 (same range); spaces allowed">
   <button id="add">Add</button>
   <span class="sp"></span>
@@ -351,15 +353,15 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.4.2&b=55"></script>
-<script src="versions.js?v=0.4.2&b=55"></script>
-<script src="data.js?v=0.4.2&b=55"></script>
-<script src="auth.js?v=0.4.2&b=55"></script>
-<script src="find.js?v=0.4.2&b=55"></script>
-<script src="raman.js?v=0.4.2&b=55"></script>
-<script src="xps.js?v=0.4.2&b=55"></script>
-<script src="eis.js?v=0.4.2&b=55"></script>
-<script src="drt.js?v=0.4.2&b=55"></script>
+<script src="config.js?v=0.4.2&b=56"></script>
+<script src="versions.js?v=0.4.2&b=56"></script>
+<script src="data.js?v=0.4.2&b=56"></script>
+<script src="auth.js?v=0.4.2&b=56"></script>
+<script src="find.js?v=0.4.2&b=56"></script>
+<script src="raman.js?v=0.4.2&b=56"></script>
+<script src="xps.js?v=0.4.2&b=56"></script>
+<script src="eis.js?v=0.4.2&b=56"></script>
+<script src="drt.js?v=0.4.2&b=56"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -1240,6 +1242,10 @@ for (const el of [$('#n_drop'), $('section[data-pane=neware]')]) {          // t
   el.addEventListener('dragleave', () => $('#n_drop').classList.remove('over'));
   el.addEventListener('drop', e => { if (!e.dataTransfer.files.length) return; e.preventDefault(); $('#n_drop').classList.remove('over'); addDropped([...e.dataTransfer.files]); });
 }
+// Smart search box: as long as it takes to end where the barcode box ends (the labels differ in width), so the two rows line up.
+{ const fit = () => { const bc = $('#bc'), ask = $('#ask'); if (!bc.offsetParent || !ask.offsetParent) return;
+    ask.style.width = Math.max(200, bc.getBoundingClientRect().right - ask.getBoundingClientRect().left) + 'px'; };
+  window.addEventListener('resize', fit); window.addEventListener('cellpeek:tab', () => setTimeout(fit)); setTimeout(fit); document.fonts && document.fonts.ready.then(fit); }
 $('#add').onclick = () => { addCells($('#bc').value); $('#bc').value = ''; };
 $('#bc').addEventListener('keydown', e => { if (e.key === 'Enter') { addCells($('#bc').value); $('#bc').value = ''; } });
 let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => {
