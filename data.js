@@ -242,7 +242,7 @@ const local = {
   },
   parseInWorker(file) {                          // up to 4 workers, so several files parse at the same time
     if (!this.workers) { const n = Math.min(4, navigator.hardwareConcurrency || 2);
-      this.workers = Array.from({length: n}, () => { const w = new Worker('parser.js?v=' + PV);
+      this.workers = Array.from({length: n}, () => { const w = new Worker('parser.js?v=' + PV + 'm');   // 'm': parser.js with Maccor (same parser version for Neware, so parsed files stay cached)
         w.onmessage = (ev) => { const j = this.jobs.get(ev.data.id); if (!j) return; this.jobs.delete(ev.data.id);
           ev.data.error ? j.rej(new Error(ev.data.error)) : j.res(ev.data.data); }; return w; }); }
     const id = ++this.jobId, w = this.workers[id % this.workers.length];
@@ -278,6 +278,10 @@ async function http(url, token) {               // the token goes in a header, s
 }
 window.api = async function (path) {
   const u = new URL(path, 'http://x'), q = Object.fromEntries(u.searchParams), t0 = performance.now();
+  if (q.drop) {                                  // a file dropped on the page: read in this browser, whatever the data source is
+    const pick = local.drops.get(q.bc); if (!pick) throw new Error('dropped file not kept: drop it again');
+    return answer(u, q, q.bc, pick, null, t0);
+  }
   if (src.mode !== 'local') {
     const go = () => http((src.mode === 'remote' ? src.base.replace(/\/+$/, '') : '.') + path, src.token);
     if (!src.office || !NQP.officeRefresh) return go();
@@ -307,10 +311,13 @@ window.api = async function (path) {
     pick = files.find(f => f.name === q.file) || files[0];
     for (const f of files) local.picks.set(bc + '|' + f.name, f);
   }
+  return answer(u, q, bc, pick, files, t0);
+};
+async function answer(u, q, bc, pick, files, t0) {
   const d = await local.data(pick);
   if (u.pathname === '/api/cell') {
     NQP.log && NQP.log('cell', {bc, file: pick.name, cycles: d.cycles.length, ms: Math.round(performance.now() - t0)});
-    return {barcode: bc, file: pick.name, dir: pick.dir, size: pick.size, mtime: pick.mtime, candidates: (files || [pick]).map(f => f.name), fmt: d.fmt, offset: d.offset, start: d.start, parse_s: d.parse_s, cycles: d.cycles,
+    return {barcode: bc, file: pick.name, dir: pick.dir, size: pick.size, mtime: pick.mtime, candidates: (files || [pick]).map(f => f.name), fmt: d.fmt, nomass: !!d.nomass, offset: d.offset, start: d.start, parse_s: d.parse_s, cycles: d.cycles,
       vqk: Object.keys(d.vq).map(Number).filter(k => d.vq[k].chg || (d.vq[k + d.offset] || {}).dis_raw).sort((x, y) => x - y)};   // cycles with a V-Q curve, the one still running included
   }
   if (u.pathname === '/api/vq') {
@@ -320,6 +327,15 @@ window.api = async function (path) {
     return {barcode: bc, vq: out};
   }
   throw new Error('not found');
+}
+// Maccor files (Neware exports too) dropped on the page or chosen with the file dialog: id -> the file. After a reload the file itself is gone;
+// its parsed data are usually still in this browser's cache, so the cell comes back without it.
+local.drops = new Map();
+NQP.drops = {
+  add(id, file) { local.drops.set(id, {name: file.name, dir: '(dropped file)', size: file.size, mtime: file.lastModified, fh: {getFile: async () => file}}); },
+  restore(id, m) { if (!local.drops.has(id)) local.drops.set(id, {name: m.name, dir: '(dropped file)', size: m.size, mtime: m.mtime,
+    fh: {getFile: async () => { throw new Error('dropped file no longer kept in this browser: drop it again'); }}}); },
+  barcode: (name) => bcsOf(name)[0] || '',
 };
 
 // ---------- folder connection (first visit: pick; later: remembered) ----------

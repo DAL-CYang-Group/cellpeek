@@ -55,6 +55,9 @@
   #cellinfo td.fn { word-break:break-all; font-weight:600; }
   #cellinfo select { font-size:12px; max-width:100%; }
   #findbar { padding-top:0; }
+  /* the drop box is as tall as the two rows (barcodes + Smart search): it reaches up into the free space of the row above, so the bar keeps its height */
+  #n_drop { min-width:0; padding:9px 16px 9px 12px; gap:10px; }
+  @media (min-width:1120px) { #n_drop { align-self:flex-end; box-sizing:border-box; height:72px; margin-top:-40px; position:relative; z-index:1; } }
   #ask { width:520px; max-width:100%; }
   #asklabel { font-weight:600; color:var(--accent); font-size:13px; white-space:nowrap; }
   #askbox { margin:6px 16px 0; background:var(--card); border:1px solid var(--line); border-radius:8px; }
@@ -302,6 +305,9 @@
   <label for="ask" id="asklabel" title="Finds cells from a description; searches the cell trackers of the lab and the Neware file names">Smart search</label>
   <input id="ask" type="text" placeholder="Ni65 graphite with VC, or any keywords you want, then Enter" title="Smart search. Describe the cells, in English or Chinese (Ni65 graphite cells with VC · LFP 40C 4.3V without FEC), or type words from the file name (CYY 40C 261021). The cell trackers of the lab and the file names in all NEWARE folders are searched. The terms that were understood are shown and can be changed.">
   <button type="button" id="askgo" title="Search (same as pressing Enter)">Search</button>
+  <label class="rdrop" id="n_drop" title="Drop Maccor data files here, or click to choose several: the Maccor export as text, or saved from Excel (.xlsx, also when the name ends with .xls). They are read in this browser only and added to the cells. Maccor files hold no mass, so capacities are in mAh. A Neware export (.txt) can be dropped here too.">
+    <input type="file" id="n_file" multiple hidden>
+    <span class="ic">⇣</span><span><b>Drop Maccor files here</b><br><u>or click to choose files…</u></span></label>
   <span class="sp"></span>
   <span id="idx"></span>
 </div>
@@ -345,15 +351,15 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.4.1&b=53"></script>
-<script src="versions.js?v=0.4.1&b=53"></script>
-<script src="data.js?v=0.4.1&b=53"></script>
-<script src="auth.js?v=0.4.1&b=53"></script>
-<script src="find.js?v=0.4.1&b=53"></script>
-<script src="raman.js?v=0.4.1&b=53"></script>
-<script src="xps.js?v=0.4.1&b=53"></script>
-<script src="eis.js?v=0.4.1&b=53"></script>
-<script src="drt.js?v=0.4.1&b=53"></script>
+<script src="config.js?v=0.4.1&b=54"></script>
+<script src="versions.js?v=0.4.1&b=54"></script>
+<script src="data.js?v=0.4.1&b=54"></script>
+<script src="auth.js?v=0.4.1&b=54"></script>
+<script src="find.js?v=0.4.1&b=54"></script>
+<script src="raman.js?v=0.4.1&b=54"></script>
+<script src="xps.js?v=0.4.1&b=54"></script>
+<script src="eis.js?v=0.4.1&b=54"></script>
+<script src="drt.js?v=0.4.1&b=54"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -533,13 +539,29 @@ function restoreNeware() {
     renderChips(); markDirty();
   } catch (e) { status('Could not restore the last session: ' + e.message); }
 }
-const savedCell = c => ({bc: c.bc, color: c.color, userFile: c.userFile || null, ranged: !!c.ranged, hid: !!c.hid});
+const savedCell = c => ({bc: c.bc, color: c.color, userFile: c.userFile || null, ranged: !!c.ranged, hid: !!c.hid, drop: c.drop || undefined});
 function putCells(list) {                      // saved form [{bc, color, userFile, ranged}] -> cells, read from the data folder again
   for (const q of list || []) {
-    if (!/^\d{4,9}$/.test(q.bc) || cells.some(c => c.bc === q.bc)) continue;
+    if (!(q.drop ? /^\w{1,12}$/ : /^\d{4,9}$/).test(q.bc) || cells.some(c => c.bc === q.bc)) continue;
     const c = {bc: q.bc, color: q.color || nextColor(), file: q.userFile || null, userFile: q.userFile || undefined, candidates: [], data: null, err: null, loading: true, ranged: !!q.ranged, hid: !!q.hid};
+    if (q.drop) { c.drop = q.drop; c.file = q.drop.name; NQP.drops.restore(c.bc, q.drop); }   // a dropped file: its parsed data are usually still in this browser
     cells.push(c); loadCell(c, q.userFile || undefined);
   }
+}
+// Maccor files (Neware exports too) dropped on the box next to Search, or chosen there: each file becomes a cell, read in this browser.
+// The cell is named by the barcode in the file name; if there is none, or a cell with it is already in the list, "drop1", "drop2", ...
+function addDropped(files) {
+  let n = 0;
+  for (const f of files) {
+    if (cells.some(c => c.drop && c.drop.name === f.name && c.drop.size === f.size)) continue;      // the same file again
+    let id = NQP.drops.barcode(f.name);
+    if (!id || cells.some(c => c.bc === id)) { let k = 1; while (cells.some(c => c.bc === 'drop' + k)) k++; id = 'drop' + k; }
+    NQP.drops.add(id, f);
+    const c = {bc: id, color: nextColor(), file: f.name, candidates: [], data: null, err: null, loading: true, drop: {name: f.name, size: f.size, mtime: f.lastModified}};
+    cells.push(c); loadCell(c); n++;
+  }
+  showBad(); renderChips();
+  if (n && NQP.log) NQP.log('file_drop', {n});
 }
 NQP.onOpen = restoreNeware;                    // called by auth.js when the page opens (data source known)
 
@@ -581,7 +603,7 @@ async function addCells(text) {
 async function loadCell(c, file) {
   c.loading = true; c.err = null; renderChips(); const t0 = performance.now();
   try {
-    const j = await api(`/api/cell?bc=${c.bc}` + (file ? `&file=${encodeURIComponent(file)}` : '') + (c.ranged ? '&deep=0' : ''));
+    const j = await api(`/api/cell?bc=${c.bc}` + (c.drop ? '&drop=1' : '') + (file ? `&file=${encodeURIComponent(file)}` : '') + (c.ranged ? '&deep=0' : ''));
     Object.assign(c, {data: j, file: j.file, candidates: j.candidates, loading: false});
     status(`${c.bc}: ${j.cycles.length} cycles, ${((performance.now()-t0)/1000).toFixed(2)} s` + (j.parse_s != null ? ` (parsed in ${j.parse_s} s)` : ' (cached)'));
   } catch (e) { c.err = e.message; c.loading = false; status(`${c.bc}: ${e.message}`);
@@ -647,6 +669,7 @@ function showCellInfo(c, anchor) {
     ${row('Last updated', j.mtime ? `${fmtTime(j.mtime)} <span style="color:var(--muted)">(${ago(j.mtime)})</span>` : '')}
     ${row('Started', esc(j.start))}
     ${row('Cycles', j.cycles ? String(j.cycles.length) : '')}
+    ${row('Capacity', j.nomass ? 'in mAh only: a Maccor file holds no mass, so "mAh/g" shows the same numbers' : '')}
     ${row('Size', j.size ? (j.size / 1048576).toFixed(1) + ' MB' : '')}
     ${c.candidates.length > 1 ? row('Other files', `<select>${c.candidates.map(f => `<option ${f === c.file ? 'selected' : ''} value="${esc(f)}">${esc(f)}</option>`).join('')}</select>`) : ''}
   </table>`;
@@ -675,7 +698,7 @@ window.addEventListener('nqp-index', () => {
     renderIdx();
     const st = NQP.index.status();
     if (wasScanning && !st.scanning) for (const c of cells) {       // a read just finished: pick up new / bigger files for loaded cells
-      if (!c.data || c.userFile || c.loading) continue;
+      if (!c.data || c.userFile || c.loading || c.drop) continue;
       const cand = NQP.index.candidates(c.bc);
       if (cand.some(n => !c.candidates.includes(n))) loadCell(c);
     }
@@ -926,7 +949,7 @@ async function ensureVQ(c, ks) {
   const need = ks.filter(k => !(k in have));
   for (let i = 0; i < need.length; i += 60) {
     const part = need.slice(i, i + 60);
-    const j = await api(`/api/vq?bc=${c.bc}&file=${encodeURIComponent(c.file)}&cycles=${part.join(',')}`);
+    const j = await api(`/api/vq?bc=${c.bc}${c.drop ? '&drop=1' : ''}&file=${encodeURIComponent(c.file)}&cycles=${part.join(',')}`);
     for (const k of part) have[k] = j.vq[k] || null;
   }
   return have;
@@ -1211,6 +1234,12 @@ $('#expsave').onclick = async () => {
 buildModules(); buildModeBar();
 { const top = $('#top'), setTop = () => document.documentElement.style.setProperty('--toph', top.offsetHeight + 'px');   // the side panel sticks right under the header
   setTop(); new ResizeObserver(setTop).observe(top); }
+$('#n_file').onchange = e => { addDropped([...e.target.files]); e.target.value = ''; };
+for (const el of [$('#n_drop'), $('section[data-pane=neware]')]) {          // the box, or anywhere on the Neware page
+  el.addEventListener('dragover', e => { if (![...e.dataTransfer.types].includes('Files')) return; e.preventDefault(); $('#n_drop').classList.add('over'); });
+  el.addEventListener('dragleave', () => $('#n_drop').classList.remove('over'));
+  el.addEventListener('drop', e => { if (!e.dataTransfer.files.length) return; e.preventDefault(); $('#n_drop').classList.remove('over'); addDropped([...e.dataTransfer.files]); });
+}
 $('#add').onclick = () => { addCells($('#bc').value); $('#bc').value = ''; };
 $('#bc').addEventListener('keydown', e => { if (e.key === 'Enter') { addCells($('#bc').value); $('#bc').value = ''; } });
 let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => {
