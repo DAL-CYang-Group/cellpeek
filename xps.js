@@ -407,8 +407,9 @@ function ticks(a, b, n) {
 const tfmt = v => Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-3) ? v.toExponential(1) : String(+v.toFixed(6));
 let EXPORTING = false;                         // PNG export: same plot (range, size, labels), without on-screen helpers (selection highlight, range band) and with all tick numbers
 function drawPlot(cv, H, o) {
-  // picture: laid out at EXPO.W css px with the proportions of the screen plot, drawn at 8x (then scaled to 8.5 cm at 300 / 600 dpi)
-  const sw = cv.parentElement.clientWidth || 600, W = EXPORTING ? EXPO.W : sw, r = EXPORTING ? 8 : window.devicePixelRatio || 1;
+  // picture: laid out at EXPO.W css px with the proportions of the screen plot, drawn straight at the final pixel size
+  // (scaling a larger drawing down afterwards left jagged line edges)
+  const sw = cv.parentElement.clientWidth || 600, W = EXPORTING ? EXPO.W : sw, r = EXPORTING ? EXP_R : window.devicePixelRatio || 1;
   if (EXPORTING) H = Math.round(H * W / sw);
   cv.width = W * r; cv.height = H * r; cv.style.width = W + 'px'; cv.style.height = H + 'px';
   const g = cv.getContext('2d'); g.setTransform(r, 0, 0, r, 0, 0); g.clearRect(0, 0, W, H);
@@ -1028,11 +1029,17 @@ async function exportAll() {
   }
   if (window.NQP && NQP.log) NQP.log('xps_export', {n: files.length});
 }
+let EXP_R = 1;                                  // scale of the picture drawing (set by savePng)
 function savePng(which, copyBtn) {                 // copyBtn: copy to the clipboard instead of saving
   const cv = $(which === 'wf' ? '#xwf_cv' : '#xft_cv'), sp = cur(), redraw = which === 'wf' ? drawWf : drawFit;
-  EXPORTING = true; try { redraw(); } finally { EXPORTING = false; }      // the picture: same range, proportions and labels as on screen, without on-screen helpers
-  const F = which === 'wf' ? WF : FT, cut = F ? Math.max(0, Math.round((F.L - 36) * (cv.width / (parseFloat(cv.style.width) || cv.width)))) : 0;   // empty left margin (room for the axis-end boxes on screen)
-  const c2 = fitWidth(cv, cut, cv.width - cut, cv.width - cut);
+  const F = () => which === 'wf' ? WF : FT;
+  EXPORTING = true;
+  try {
+    EXP_R = 1; redraw();                                                   // layout pass: where the plot starts (its left margin is cut off)
+    const cutCss = F() ? Math.max(0, F().L - 36) : 0;                       // empty left margin (room for the axis-end boxes on screen)
+    EXP_R = EXPO.px(300) / (EXPO.W - cutCss); redraw();                    // the picture, 8.5 cm at 300 dpi, drawn at its own size
+    var c2 = fitWidth(cv, Math.round(cutCss * EXP_R), EXPO.px(300), EXPO.px(300));
+  } finally { EXPORTING = false; }
   redraw();
   putPic(c2, (which === 'wf' ? 'xps_spectra' : 'xps_fit_' + (sp ? sp.name : '')) + '.png', copyBtn);
 }

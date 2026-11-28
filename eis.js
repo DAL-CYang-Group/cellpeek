@@ -230,9 +230,9 @@ function commonRange() {                          // in display units
   const px = (x1 - x0) * 0.05 || 1, dy = (y1 - y0) || 1;
   return {xs: [x0 - px, x1 + px], ys: [y0 - dy * 0.2, y1 + dy * 0.1]};       // room under the axis for the R_HFI / R_ct labels
 }
-let EXPORTING = false;                         // PNG export / copy: laid out at the picture width (8.5 cm), drawn at 8x
+let EXPORTING = false;                         // PNG export / copy: laid out at the picture width (8.5 cm), drawn at its final size
 function drawNyq(cv, s, rg) {
-  const W = EXPORTING ? EXPO.W : cv.parentElement.clientWidth || 600, r = EXPORTING ? 8 : window.devicePixelRatio || 1, k = scale(), fit = good(s);   // picture: laid out at EXPO.W css px, drawn at 8x
+  const W = EXPORTING ? EXPO.W : cv.parentElement.clientWidth || 600, r = EXPORTING ? EXPO.px(300) / EXPO.W : window.devicePixelRatio || 1, k = scale(), fit = good(s);   // picture: laid out at EXPO.W css px, drawn straight at 8.5 cm, 300 dpi
   const L = 66, R = 18, T = 10, B = 44, pw = W - L - R;
   let xs = rg.xs.slice(), ys = rg.ys.slice();
   const ph = Math.max(150, Math.min(520, Math.round(pw * (ys[1] - ys[0]) / (xs[1] - xs[0]))));
