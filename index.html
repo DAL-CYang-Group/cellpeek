@@ -394,15 +394,21 @@ window.putPic = async (canvas, name, copyBtn) => {
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.4.2&b=61"></script>
-<script src="versions.js?v=0.4.2&b=61"></script>
-<script src="data.js?v=0.4.2&b=61"></script>
-<script src="auth.js?v=0.4.2&b=61"></script>
-<script src="find.js?v=0.4.2&b=61"></script>
-<script src="raman.js?v=0.4.2&b=61"></script>
-<script src="xps.js?v=0.4.2&b=61"></script>
-<script src="eis.js?v=0.4.2&b=61"></script>
-<script src="drt.js?v=0.4.2&b=61"></script>
+<script src="config.js?v=0.4.2&b=62"></script>
+<script src="versions.js?v=0.4.2&b=62"></script>
+<script src="data.js?v=0.4.2&b=62"></script>
+<script src="auth.js?v=0.4.2&b=62"></script>
+<script src="find.js?v=0.4.2&b=62"></script>
+<script src="raman.js?v=0.4.2&b=62"></script>
+<script src="xps.js?v=0.4.2&b=62"></script>
+<script src="eis.js?v=0.4.2&b=62"></script>
+<script src="drt.js?v=0.4.2&b=62"></script>
+<dialog id="upd" class="small">
+  <div class="eh"><span>New version of CellPeek</span><button type="button" id="upd_x">✕</button></div>
+  <div class="sb"><p id="upd_txt">A newer version of CellPeek is available.</p>
+    <p class="gmuted">Reload the page to use it. Your cells, plots, settings and spectra are kept: they are saved in this browser.</p></div>
+  <div class="ef"><button type="button" id="upd_no">Not now</button><button type="button" class="primary" id="upd_go">Reload</button></div>
+</dialog>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -1293,6 +1299,25 @@ for (const el of [$('#n_drop'), $('section[data-pane=neware]')]) {          // t
 { const fit = () => { const bc = $('#bc'), ask = $('#ask'); if (!bc.offsetParent || !ask.offsetParent) return;
     ask.style.width = Math.max(200, bc.getBoundingClientRect().right - ask.getBoundingClientRect().left) + 'px'; };
   window.addEventListener('resize', fit); window.addEventListener('cellpeek:tab', () => setTimeout(fit)); setTimeout(fit); document.fonts && document.fonts.ready.then(fit); }
+// Newer version on the site: the page asks for itself again now and then (at start, every 30 min, when its tab is shown again)
+// and compares the build number of its scripts. If it is newer, a window offers to reload; "Not now" waits until the next day.
+{ const here = () => { const m = (document.querySelector('script[src*="versions.js"]') || {}).src; return m ? +(new URL(m).searchParams.get('b') || 0) : 0; };
+  const today = () => new Date().toLocaleDateString('en-CA'), b0 = here();      // local date
+  const ask = async () => {
+    if (!b0 || document.visibilityState !== 'visible' || $('dialog[open]')) return;
+    try { if (localStorage.getItem('nqp_upd_day') === today()) return; } catch {}
+    let txt; try { txt = await (await fetch(location.pathname + '?u=' + Date.now(), {cache: 'no-store'})).text(); } catch { return; }
+    const m = txt.match(/versions\.js\?v=([\w.]+)&(?:amp;)?b=(\d+)/); if (!m || +m[2] <= b0) return;
+    try { localStorage.setItem('nqp_upd_day', today()); } catch {}                // asked once today, whatever the answer
+    $('#upd_txt').textContent = `A newer version of CellPeek is available (${m[1]}, build ${m[2]}; this page has build ${b0}).`;
+    $('#upd').showModal(); $('#upd_go').focus();
+  };
+  $('#upd_go').onclick = () => location.reload();
+  $('#upd_no').onclick = $('#upd_x').onclick = () => $('#upd').close();
+  setTimeout(ask, 8000); setInterval(ask, 30 * 60000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') ask(); });
+  NQP.updateCheck = ask;                          // for testing from the console
+}
 $('#add').onclick = () => { addCells($('#bc').value); $('#bc').value = ''; };
 $('#bc').addEventListener('keydown', e => { if (e.key === 'Enter') { addCells($('#bc').value); $('#bc').value = ''; } });
 let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => {
