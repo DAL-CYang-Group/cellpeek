@@ -407,7 +407,9 @@ function ticks(a, b, n) {
 const tfmt = v => Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-3) ? v.toExponential(1) : String(+v.toFixed(6));
 let EXPORTING = false;                         // PNG export: same plot (range, size, labels), without on-screen helpers (selection highlight, range band) and with all tick numbers
 function drawPlot(cv, H, o) {
-  const W = cv.parentElement.clientWidth || 600, r = window.devicePixelRatio || 1;
+  // picture: laid out at EXPO.W css px with the proportions of the screen plot, drawn at 8x (then scaled to 8.5 cm at 300 / 600 dpi)
+  const sw = cv.parentElement.clientWidth || 600, W = EXPORTING ? EXPO.W : sw, r = EXPORTING ? 8 : window.devicePixelRatio || 1;
+  if (EXPORTING) H = Math.round(H * W / sw);
   cv.width = W * r; cv.height = H * r; cv.style.width = W + 'px'; cv.style.height = H + 'px';
   const g = cv.getContext('2d'); g.setTransform(r, 0, 0, r, 0, 0); g.clearRect(0, 0, W, H);
   const L = 92, R = 16, T = 16, B = 56, pw = W - L - R, ph = H - T - B;
@@ -510,8 +512,8 @@ function build() {
       <span class="ic">⇣</span><span><b>Drop XPS spectra here</b><br><u>or click to choose files…</u></span></label>
     <label class="xmode" title="What is fitted. A mode sets the energy region, the background and the list of peaks with their constraints.">Mode <select id="x_mode">${Object.entries(MODES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
     <span class="hbtns">
-      <button type="button" id="xr_undo" class="big" title="Undo (Ctrl+Z)">↶ Undo</button>
-      <button type="button" id="xr_redo" class="big" title="Redo (Ctrl+Y)">↷ Redo</button>
+      <span class="tipw"><button type="button" id="xr_undo" class="big" title="Undo (Ctrl+Z)">↶ Undo</button></span>
+      <span class="tipw"><button type="button" id="xr_redo" class="big" title="Redo (Ctrl+Y)">↷ Redo</button></span>
       <button type="button" id="xr_hist" title="All steps">Steps <b id="xr_hn">0</b> ▾</button>
     </span>
     <span class="sp"></span>
@@ -604,7 +606,7 @@ function render() {
   { const c = cur(), prev = S.spectra.find(s => s.id === LASTSEL);                // another region selected: typed axis limits of the old one do not apply
     if (c && c.id !== LASTSEL && !(prev && sameRegion(prev, c))) { LIMS.x = [null, null]; LIMS.wf = [null, null]; LIMS.fit = [null, null]; }
     LASTSEL = c ? c.id : null; }
-  $('#xr_undo').disabled = HPOS <= 0; $('#xr_redo').disabled = HPOS >= HIST.length - 1;
+  setWhy($('#xr_undo'), HPOS > 0, 'Undo (Ctrl+Z)', 'Nothing to undo'); setWhy($('#xr_redo'), HPOS < HIST.length - 1, 'Redo (Ctrl+Y)', 'Nothing to redo');
   $('#xr_undo').title = HPOS > 0 ? 'Undo: ' + HIST[HPOS].label + ' (Ctrl+Z)' : 'Nothing to undo';
   $('#xr_redo').title = HPOS < HIST.length - 1 ? 'Redo: ' + HIST[HPOS + 1].label + ' (Ctrl+Y)' : 'Nothing to redo';
   $('#xr_hn').textContent = Math.max(0, HPOS);
@@ -1028,13 +1030,11 @@ async function exportAll() {
 }
 function savePng(which, copyBtn) {                 // copyBtn: copy to the clipboard instead of saving
   const cv = $(which === 'wf' ? '#xwf_cv' : '#xft_cv'), sp = cur(), redraw = which === 'wf' ? drawWf : drawFit;
-  EXPORTING = true; try { redraw(); } finally { EXPORTING = false; }      // the PNG is the plot as it is on screen: same range, same proportions, same labels and label positions
+  EXPORTING = true; try { redraw(); } finally { EXPORTING = false; }      // the picture: same range, proportions and labels as on screen, without on-screen helpers
   const F = which === 'wf' ? WF : FT, cut = F ? Math.max(0, Math.round((F.L - 36) * (cv.width / (parseFloat(cv.style.width) || cv.width)))) : 0;   // empty left margin (room for the axis-end boxes on screen)
-  const c2 = document.createElement('canvas'); c2.width = cv.width - cut; c2.height = cv.height; const g = c2.getContext('2d');
-  g.fillStyle = '#fff'; g.fillRect(0, 0, c2.width, c2.height); g.drawImage(cv, -cut, 0);
-  if (copyBtn) { copyPng(c2, copyBtn); redraw(); return; }
-  const a = document.createElement('a'); a.href = c2.toDataURL('image/png'); a.download = (which === 'wf' ? 'xps_spectra' : 'xps_fit_' + (sp ? sp.name : '')) + '.png'; a.click();
+  const c2 = fitWidth(cv, cut, cv.width - cut, cv.width - cut);
   redraw();
+  putPic(c2, (which === 'wf' ? 'xps_spectra' : 'xps_fit_' + (sp ? sp.name : '')) + '.png', copyBtn);
 }
 
 // ---------------- start ----------------

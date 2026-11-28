@@ -230,8 +230,9 @@ function commonRange() {                          // in display units
   const px = (x1 - x0) * 0.05 || 1, dy = (y1 - y0) || 1;
   return {xs: [x0 - px, x1 + px], ys: [y0 - dy * 0.2, y1 + dy * 0.1]};       // room under the axis for the R_HFI / R_ct labels
 }
+let EXPORTING = false;                         // PNG export / copy: laid out at the picture width (8.5 cm), drawn at 8x
 function drawNyq(cv, s, rg) {
-  const W = cv.parentElement.clientWidth || 600, r = window.devicePixelRatio || 1, k = scale(), fit = good(s);
+  const W = EXPORTING ? EXPO.W : cv.parentElement.clientWidth || 600, r = EXPORTING ? 8 : window.devicePixelRatio || 1, k = scale(), fit = good(s);   // picture: laid out at EXPO.W css px, drawn at 8x
   const L = 66, R = 18, T = 10, B = 44, pw = W - L - R;
   let xs = rg.xs.slice(), ys = rg.ys.slice();
   const ph = Math.max(150, Math.min(520, Math.round(pw * (ys[1] - ys[0]) / (xs[1] - xs[0]))));
@@ -325,10 +326,12 @@ function renderRow(s) {                           // after one fit: its card, th
   renderTable(); drawAll();
 }
 function hookCard(c, s) {
-  const pic = () => { const cv = $('#cv_' + s.id), c2 = document.createElement('canvas'); c2.width = cv.width; c2.height = cv.height; const g = c2.getContext('2d');
-    g.fillStyle = '#fff'; g.fillRect(0, 0, c2.width, c2.height); g.drawImage(cv, 0, 0); return c2; };
-  const b = $('[data-png]', c); if (b) b.onclick = () => { const a = document.createElement('a'); a.href = pic().toDataURL('image/png'); a.download = 'eis_' + s.name + '.png'; a.click(); };
-  const k = $('[data-copy]', c); if (k) k.onclick = () => copyPng(pic(), k); }
+  const pic = () => { const cv = $('#cv_' + s.id), rg = commonRange();
+    EXPORTING = true; try { drawNyq(cv, s, rg); } finally { EXPORTING = false; }
+    const c2 = fitWidth(cv, 0, cv.width, cv.width); drawNyq(cv, s, rg); return c2; };
+  const save = () => putPic(pic(), 'eis_' + s.name + '.png', null), copy = () => putPic(pic(), '', k);
+  const b = $('[data-png]', c); if (b) b.onclick = save;
+  const k = $('[data-copy]', c); if (k) k.onclick = copy; }
 function renderTable() {
   const k = scale(), u = unit();
   const rows = S.spectra.map(q => { const t = good(q), poor = t && t.err > POOR;

@@ -133,7 +133,12 @@
   .expbtn:hover { background:var(--accent); color:#fff; }
   .expbtn + .expbtn { margin-left:6px; } .copied, .copied:hover { color:#1a7f37 !important; border-color:#1a7f37 !important; background:#fff !important; }
   .expbtn:disabled, .expbtn:disabled:hover { color:var(--muted); border-color:var(--line); background:#fff; cursor:not-allowed; }
-  #modstop { display:flex; align-items:center; gap:10px; min-height:22px; } #stackwhy { margin-left:auto; font-size:11.5px; color:var(--muted); } #stackwhy:empty + .expbtn { margin-left:auto; } #stackwhy + .expbtn { margin-left:0; } #modstop .expbtn + .expbtn { margin-left:0; }
+  #modstop { display:flex; align-items:center; justify-content:flex-end; gap:10px; min-height:22px; } #modstop .expbtn { margin-left:0; }
+  /* A greyed-out button says why in its tooltip, not in the panel: the span around it carries the same title, because a disabled
+     button itself does not react to the mouse in every browser (setWhy() below). */
+  .tipw { display:inline-flex; } .tipw > button:disabled { pointer-events:none; }
+  #picnote { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:50; background:#1d2329; color:#fff; font-size:13px; padding:8px 14px; border-radius:6px; box-shadow:0 2px 10px rgba(0,0,0,.2); }
+  #picnote a { color:#9cc3ff; }
   .dq-cell .hrow { display:flex; align-items:center; gap:8px; }
   .dq-cell .hrow .head { flex:1; min-width:0; }
   #exp { border:1px solid var(--line); border-radius:10px; padding:0; width:min(1100px, 96vw); box-shadow:0 10px 40px rgba(0,0,0,.25); }
@@ -149,7 +154,7 @@
   #exp .legrows input[type=color] { width:34px; height:24px; padding:0; border:1px solid var(--line); background:#fff; }
   #exp .legrows input[type=text] { width:100%; box-sizing:border-box; }
   #exp .ef { display:flex; align-items:center; gap:8px; padding:10px 14px; border-top:1px solid var(--line); }
-  #exp .ef input { flex:1; }
+  #exp .ef input { flex:1; } #expsize { font-size:12px; color:var(--muted); white-space:nowrap; min-width:118px; }
   .dq-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap:10px; }
   .dq-cell .head { font-weight:600; font-size:13px; }
   .dq-cell .head { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -205,7 +210,7 @@
   button.big { font-weight:700; padding:6px 16px; border:1.5px solid #e08a00; color:#b36b00; background:#fff7e8; }
   button.big:not(:disabled):hover { background:#e08a00; color:#fff; }
   #r_save, #xr_save { font-size:12.5px; } #r_save a, #xr_save a { color:var(--accent); }
-  #r_save a.srcneed, #xr_save a.srcneed { font-weight:600; color:#fff; background:var(--accent); padding:2px 8px; border-radius:4px; text-decoration:none; }
+  #r_save a.srcneed, #xr_save a.srcneed { display:inline-block; font-weight:600; font-size:14px; color:#fff; background:var(--accent); border:1px solid var(--accent); padding:5px 12px; border-radius:5px; text-decoration:none; vertical-align:middle; }   /* same size as the buttons next to it */
   #r_msg, #xr_msg { padding:6px 16px 0; font-size:13px; color:var(--muted); min-height:6px; }
   .rgrid { display:grid; grid-template-columns:minmax(0, var(--rl, 1fr)) minmax(0, var(--rr, 1fr)); gap:12px; padding:8px 16px 40px; align-items:start; }
   /* EIS: plots one below the other on the left, results table fixed on the right */
@@ -280,6 +285,42 @@
   .hrow { display:flex; gap:8px; padding:3px 6px; border-radius:5px; cursor:pointer; } .hrow:hover { background:#f3f5f8; }
   .hrow.on { background:#eef3fb; font-weight:600; } .hrow.fut { color:var(--muted); }
 </style>
+<script>
+// A button that can be on or off (all tabs): when off it is greyed out and its tooltip says why (the same text on the span around it).
+window.setWhy = (b, on, title, why) => { b.disabled = !on; b.title = on ? title : why;
+  if (b.parentElement && b.parentElement.classList.contains('tipw')) b.parentElement.title = on ? '' : why; };
+
+// Pictures (all tabs): 8.5 cm wide (one journal column), proportions as on screen; 300 dpi (Neware export window: 300 or 600, remembered).
+// Every plot is laid out at EXPO.W css px for the picture, so lettering has the same printed size on every tab.
+window.EXPO = {cm: 8.5, W: 505,
+  get dpi() { try { return +localStorage.getItem('nqp_dpi') === 600 ? 600 : 300; } catch { return 300; } },
+  set dpi(v) { try { localStorage.setItem('nqp_dpi', String(v)); } catch {} },
+  px(dpi) { return Math.round(this.cm / 2.54 * (dpi || this.dpi)); }};
+// part of a canvas (sx .. sx+sw), scaled to px wide, on white
+window.fitWidth = (src, sx, sw, px) => { const c = document.createElement('canvas'); c.width = px; c.height = Math.round(src.height * px / sw);
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingQuality = 'high';
+  g.drawImage(src, sx, 0, sw, src.height, 0, 0, c.width, c.height); return c; };
+// PNG with its resolution written in (pHYs), so Word and PowerPoint place it at 8.5 cm
+window.pngBlob = async (canvas, dpi) => {
+  const b = await new Promise((res, rej) => canvas.toBlob(x => x ? res(x) : rej(new Error('no image')), 'image/png'));
+  const u = new Uint8Array(await b.arrayBuffer()), ppm = Math.round(dpi / 0.0254), ch = new Uint8Array(21), dv = new DataView(ch.buffer);
+  dv.setUint32(0, 9); ch.set([112, 72, 89, 115], 4); dv.setUint32(8, ppm); dv.setUint32(12, ppm); ch[16] = 1;
+  let c = ~0; for (let i = 4; i < 17; i++) { c ^= ch[i]; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1)); } dv.setUint32(17, ~c >>> 0);
+  return new Blob([u.slice(0, 33), ch, u.slice(33)], {type: 'image/png'});      // right after IHDR (8 + 25 bytes)
+};
+window.kB = n => n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + ' kB' : (n / 1048576).toFixed(1) + ' MB';
+// short note at the bottom of the window after a picture is saved or copied
+window.picNote = (text) => { let t = document.querySelector('#picnote');
+  if (!t) { t = document.createElement('div'); t.id = 'picnote'; document.body.appendChild(t); }
+  t.textContent = text; t.hidden = false; clearTimeout(t._t); t._t = setTimeout(() => { t.hidden = true; }, 6000); };
+// save or copy one picture (Raman, XPS, EIS): always 300 dpi; canvas already cut to the plot, file name, copy button or null
+window.putPic = async (canvas, name, copyBtn) => {
+  const img = fitWidth(canvas, 0, canvas.width, EXPO.px(300)), b = await pngBlob(img, 300);
+  if (copyBtn) { if (await copyPng(img, copyBtn)) picNote(`Copied: 8.5 cm wide, 300 dpi, ${kB(b.size)}`); return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  picNote(`Saved ${name}: 8.5 cm wide, 300 dpi, ${kB(b.size)}`);
+};
+</script>
 </head>
 <body>
 <div id="top">
@@ -333,7 +374,7 @@
   <div id="asklist" title="Click a cell to select it, click again to let it go; Shift + click selects a range. Hover over a row for the column names."></div>
 </div>
 <div id="work">
-<main id="mods"><div id="modstop"><span id="stackwhy"></span><button type="button" id="xlsbtn" class="expbtn" disabled>Export Excel</button><button type="button" id="stackpng" class="expbtn" disabled>Combined PNG</button></div></main>
+<main id="mods"><div id="modstop"><span class="tipw"><button type="button" id="xlsbtn" class="expbtn" disabled>Export Excel</button></span><span class="tipw"><button type="button" id="stackpng" class="expbtn" disabled>Combined PNG</button></span></div></main>
 <aside id="side">
   <h4>Plots</h4>
   <div id="modebar"></div>
@@ -353,15 +394,15 @@
 </section>
 
 <script src="static/uPlot.iife.min.js"></script>
-<script src="config.js?v=0.4.2&b=56"></script>
-<script src="versions.js?v=0.4.2&b=56"></script>
-<script src="data.js?v=0.4.2&b=56"></script>
-<script src="auth.js?v=0.4.2&b=56"></script>
-<script src="find.js?v=0.4.2&b=56"></script>
-<script src="raman.js?v=0.4.2&b=56"></script>
-<script src="xps.js?v=0.4.2&b=56"></script>
-<script src="eis.js?v=0.4.2&b=56"></script>
-<script src="drt.js?v=0.4.2&b=56"></script>
+<script src="config.js?v=0.4.2&b=60"></script>
+<script src="versions.js?v=0.4.2&b=60"></script>
+<script src="data.js?v=0.4.2&b=60"></script>
+<script src="auth.js?v=0.4.2&b=60"></script>
+<script src="find.js?v=0.4.2&b=60"></script>
+<script src="raman.js?v=0.4.2&b=60"></script>
+<script src="xps.js?v=0.4.2&b=60"></script>
+<script src="eis.js?v=0.4.2&b=60"></script>
+<script src="drt.js?v=0.4.2&b=60"></script>
 <dialog id="verdlg" class="small">
   <div class="eh"><span>Version history</span><button type="button" id="ver_x">✕</button></div>
   <div class="sb" id="verlist"></div>
@@ -404,7 +445,7 @@
       <label id="exppctrow"><input type="checkbox" id="exppct" checked> Retention (%) of the last cycle at the right</label>
     </div>
   </div>
-  <div class="ef">File name <input type="text" id="expname"><button type="button" id="expcopy" title="Copy the picture, to paste it into PowerPoint, Word, an e-mail or a chat">Copy</button><button type="button" class="primary" id="expsave">Save as…</button></div>
+  <div class="ef">File name <input type="text" id="expname"><select id="expdpi" title="Resolution of the picture (it is 8.5 cm wide, one journal column)"><option value="300">300 dpi</option><option value="600">600 dpi</option></select><span id="expsize"></span><button type="button" id="expcopy" title="Copy the picture, to paste it into PowerPoint, Word, an e-mail or a chat">Copy</button><button type="button" class="primary" id="expsave">Save as…</button></div>
 </dialog>
 <script>
 // ---------------- tabs ----------------
@@ -1130,7 +1171,12 @@ function drawFig(cv, T, st, scale) {
 }
 let EXPT = null; const EXPST = {col: {}, lab: {}, fill: false, legend: true, pct: true};
 function today() { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`; }
-function expRedraw() { if (EXPT) drawFig($('#expcv'), EXPT, EXPST, 2); }
+function expRedraw() { if (!EXPT) return; drawFig($('#expcv'), EXPT, EXPST, 2); clearTimeout(expRedraw.t); expRedraw.t = setTimeout(expSize, 250); }
+// the picture: 8.5 cm wide at 300 or 600 dpi (the figure is laid out in css px first, then drawn at the scale that gives that width)
+function figPic(dpi) { const c0 = document.createElement('canvas'); drawFig(c0, EXPT, EXPST, 1);
+  const cv = document.createElement('canvas'); drawFig(cv, EXPT, EXPST, EXPO.px(dpi) / c0.width); return cv; }
+async function expSize() { const dpi = EXPO.dpi, cv = figPic(dpi), b = await pngBlob(cv, dpi);
+  $('#expsize').textContent = `8.5 × ${(cv.height / dpi * 2.54).toFixed(1)} cm · ${kB(b.size)}`; }
 function openExport(u) { if (!u || !u.exp || !u.exp.items.length) { status('Nothing to export'); return; } openFig(figOf(u)); }
 function openFig(T) {
   EXPT = T;
@@ -1139,6 +1185,7 @@ function openFig(T) {
   $('#explist').innerHTML = T.items.map(i => `<input type="color" data-key="${i.key}" value="${i.color}"><input type="text" data-key="${i.key}" value="${i.label}">`).join('');
   $('#explist').querySelectorAll('input').forEach(inp => inp.oninput = () => {
     (inp.type === 'color' ? EXPST.col : EXPST.lab)[inp.dataset.key] = inp.value; expRedraw(); });
+  $('#expdpi').value = String(EXPO.dpi); $('#expsize').textContent = '';
   $('#expfill').checked = EXPST.fill; $('#explegon').checked = EXPST.legend; $('#exppct').checked = EXPST.pct;
   $('#exppctrow').hidden = !T.panels.some(p => p.e.endPct);                         // only for plots of normalized capacity
   $('#expname').value = `${today()}_${T.name}_${T.kind === 'line' ? '' : T.items.map(i => i.key).join('-')}`.replace(/_$/, '') + '.png';
@@ -1155,9 +1202,9 @@ function stackState() {
   if (got.length < 2) return {why: ''};
   return {got};
 }
-function syncStack() { const s = stackState(), b = $('#stackpng'); b.disabled = !s.got; $('#stackwhy').textContent = s.got ? '' : s.why;
-  b.title = s.got ? `One figure: the ${s.got.length} plots shown, stacked on a shared x axis` : s.why || 'Add a cell first';
-  const n = xlsPlots().length, x = $('#xlsbtn'); x.disabled = !n; x.title = n ? 'One Excel file: the data of the plots shown, one sheet for each plot' : 'Add a cell first'; }
+function syncStack() { const s = stackState();
+  setWhy($('#stackpng'), !!s.got, s.got ? `One figure: the ${s.got.length} plots shown, stacked on a shared x axis` : '', (s.why || 'Add a cell first').replace(/^Combined PNG: /, 'Not available: '));
+  const n = xlsPlots().length; setWhy($('#xlsbtn'), n > 0, 'One Excel file: the data of the plots shown, one sheet for each plot', 'Add a cell first'); }
 // Export Excel: the data of every plot that is shown, as plotted (unit, normalization, ΔV mode, chosen cycles; unticked cells left out),
 // one sheet for each plot. Every column is headed with what it holds and its unit. The axis ranges (zoom) do not cut the data.
 const XLS_SHEET = {qcyc: 'Capacity vs cycle', qtime: 'Capacity vs time', ncyc: 'Norm. capacity vs cycle', ntime: 'Norm. capacity vs time',
@@ -1215,10 +1262,10 @@ window.copyPng = (canvas, btn) => {
   return navigator.clipboard.write([new ClipboardItem({'image/png': blob})])
     .then(() => { flash('Copied ✓', true); NQP.log && NQP.log('copy'); return true; }, e => { flash('Copy failed', false); console.warn(e); return false; });
 };
-$('#expcopy').onclick = e => { const cv = document.createElement('canvas'); drawFig(cv, EXPT, EXPST, EXPSCALE); copyPng(cv, e.currentTarget); };
+$('#expcopy').onclick = e => copyPng(figPic(EXPO.dpi), e.currentTarget);
+$('#expdpi').onchange = e => { EXPO.dpi = +e.target.value; expSize(); };
 $('#expsave').onclick = async () => {
-  const cv = document.createElement('canvas'); drawFig(cv, EXPT, EXPST, EXPSCALE);
-  const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+  const dpi = EXPO.dpi, blob = await pngBlob(figPic(dpi), dpi);
   let name = $('#expname').value.trim() || 'plot.png'; if (!/\.png$/i.test(name)) name += '.png';
   try {
     if (window.showSaveFilePicker) {        // Chrome / Edge: asks where to save
